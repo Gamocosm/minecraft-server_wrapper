@@ -2,6 +2,58 @@ import flask
 import sys
 import signal
 import subprocess
+import os
+import socket
+import struct
+import json
+
+def pack_varint(x):
+	varint = b''
+	for i in range(5):
+		b = x & 0x7f
+		x >>= 7
+		varint += struct.pack('B', b | (0x80 if x > 0 else 0))
+		if x == 0:
+			break
+	return varint
+
+def unpack_varint(s):
+	x = 0
+	for i in range(5):
+		b = ord(s.recv(1))
+		x |= (b & 0x7f) << 7 * i
+		if not (b & 0x80):
+			break
+	return x
+
+def pack_string(msg):
+	return pack_varint(len(msg)) + msg
+
+def pack_port(port):
+	return struct.pack('>H', port)
+
+# Classes
+class MinecraftPing:
+	def __init__(self, host, port):
+		self.host = host
+		self.port = port
+
+	def ping(self):
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.connect((self.host, self.port))
+
+		s.send(pack_string(b'\x00\x04' + pack_string(self.host.encode('utf8')) + pack_port(self.port) + b'\x01'))
+		s.send(pack_string(b'\x00'))
+
+		packet_length = unpack_varint(s)
+		packet_id = unpack_varint(s)
+		l = unpack_varint(s)
+
+		response = s.recv(l)
+
+		s.close()
+
+		return json.loads(response.decode('utf8'))
 
 app = flask.Flask(__name__)
 mc_process = None
@@ -9,15 +61,11 @@ mc_process = None
 # Handlers
 
 def signal_handler(signum=None, frame=None):
-	signals = { signal.SIGTERM: "SIGTERM", signal.SIGINT: "SIGINT" }
-	if signum in signals:
-		print('Received signal {0}, stopping...'.format(signals[signum]))
-		print('Server stopped with: {0}.'.format(mc_shutdown()))
-	else:
-		print('Unknown signal {0}, ignoring.'.format(signum))
+	mc_shutdown()
+	sys.exit(0)
 
 def subprocess_preexec_handler():
-	signal.signal(signal.SIGINT, signal.SIG_IGN)
+	os.setpgrp()
 
 # Routes
 
@@ -62,7 +110,9 @@ def minecraft_exec():
 def minecraft_query():
 	if mc_process is None:
 		return flask.jsonify(running=False)
-	return False
+	data = MinecraftPing('localhost', 25565).ping()
+	data['running'] = True
+	return flask.jsonify(**data)
 
 # Minecraft functions
 
@@ -79,8 +129,7 @@ def mc_shutdown():
 
 def main():
 	for sig in [signal.SIGTERM, signal.SIGINT]:
-		# signal.signal(sig, signal_handler)
-		pass
+		signal.signal(sig, signal_handler)
 
 	app.run()
 
