@@ -6,6 +6,26 @@ import os
 import socket
 import struct
 import json
+import shutil
+import tempfile
+
+class MinecraftProperties:
+	def __init__(self, f):
+		self.f = f
+
+	def update_properties(self, keyvals):
+		tmp = tempfile.NamedTemporaryFile(delete=False)
+		with open(self.f) as src:
+			for line in src:
+				if '=' in line:
+					k = line.split('=')[0]
+					if k in keyvals:
+						tmp.write(bytes(k + '=' + keyvals[k] + '\n', 'utf8'))
+						continue
+				tmp.write(bytes(line, 'utf8'))
+		tmp.close()
+		os.remove(self.f)
+		shutil.move(tmp.name, self.f)
 
 def pack_varint(x):
 	varint = b''
@@ -31,6 +51,23 @@ def pack_string(msg):
 
 def pack_port(port):
 	return struct.pack('>H', port)
+
+def minecraft_ping(host, port):
+	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s.connect((host, port))
+
+	s.send(pack_string(b'\x00\x04' + pack_string(host.encode('utf8')) + pack_port(port) + b'\x01'))
+	s.send(pack_string(b'\x00'))
+
+	packet_length = unpack_varint(s)
+	packet_id = unpack_varint(s)
+	l = unpack_varint(s)
+
+	response = s.recv(l)
+
+	s.close()
+
+	return json.loads(response.decode('utf8'))
 
 # Classes
 class MinecraftPing:
@@ -110,9 +147,31 @@ def minecraft_exec():
 def minecraft_query():
 	if mc_process is None:
 		return flask.jsonify(running=False)
-	data = MinecraftPing('localhost', 25565).ping()
+	data = minecraft_ping('localhost', 25565)
 	data['running'] = True
 	return flask.jsonify(**data)
+
+@app.route('/broadcast')
+def minceraft_broadcast():
+	if mc_process is None:
+		return flask.jsonify(error='Minecraft server not running.')
+	data = flask.request.get_json(force=True)
+	if not 'message' in data:
+		return flask.jsonify(error='Invalid message')
+	mc_process.stdin.write(message + '\n')
+	return flask.jsonify(status='ok')
+
+@app.route('/update_server_properties', methods=['POST'])
+def minecraft_update_server_properties():
+	if not mc_process is None:
+		return flask.jsonify(error='Minecraft server already running.')
+	data = flask.request.get_json(force=True)
+	if not (('properties' in data) and isinstance(data['properties'], dict)):
+		return flask.jsonify(error='Invalid properties')
+	properties = MinecraftProperties('server.properties')
+	properties.update_properties(data['properties'])
+	return flask.jsonify(status='ok')
+
 
 # Minecraft functions
 
@@ -131,7 +190,7 @@ def main():
 	for sig in [signal.SIGTERM, signal.SIGINT]:
 		signal.signal(sig, signal_handler)
 
-	app.run()
+	app.run(debug=True)
 
 if __name__ == '__main__':
 	main()
