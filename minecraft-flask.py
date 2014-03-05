@@ -9,6 +9,171 @@ import json
 import shutil
 import tempfile
 
+app = flask.Flask(__name__)
+mc_process = None
+
+# Handlers
+
+def signal_handler(signum=None, frame=None):
+	mc_shutdown()
+	sys.exit(0)
+
+def subprocess_preexec_handler():
+	os.setpgrp()
+
+# Routes
+'''
+All responses include a status: int field. 0 for no errors
+'''
+ERR_SERVER_RUNNING = 1
+ERR_SERVER_NOT_RUNNING = 2
+ERR_NO_MINECRAFT_JAR = 3
+ERR_INVALID_REQUEST = 4
+ERR_OTHER = 128
+
+@app.route('/')
+def index():
+	return json.stringify(message='Minecraft server web wrapper.', status=0)
+
+'''
+request: {
+	ram: '1024M'
+}
+response: {
+	pid: 1234
+}
+'''
+@app.route('/start', methods=['POST'])
+def minecraft_start():
+	global mc_process
+	if not mc_process is None:
+		return flask.jsonify(status=ERR_SERVER_RUNNING)
+	data = flask.request.get_json(force=True)
+	ram = data.get('ram')
+	if ram is None:
+		return flask.jsonify(status=ERR_INVALID_REQUEST)
+	if not os.path.isfile('minecraft_server.jar'):
+		return flask.jsonify(status=ERR_NO_MINECRAFT_JAR)
+	mc_process = subprocess.Popen(['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server.jar', 'nogui'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=False)
+	return flask.jsonify(status=0, pid=mc_process.pid)
+
+'''
+request: {
+}
+response: {
+	retcode: 1234
+}
+'''
+@app.route('/stop')
+def minecraft_stop():
+	if mc_process is None:
+		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
+	return flask.jsonify(status=0, retcode=mc_shutdown())
+
+'''
+request: {
+}
+response: {
+	pid: 1234
+}
+'''
+@app.route('/pid')
+def minecraft_pid():
+	if mc_process is None:
+		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
+	return flask.jsonify(status=0, pid=mc_process.pid)
+
+'''
+request: {
+	command: ['broadcast', 'hello world']
+}
+response: {
+}
+'''
+@app.route('/exec', methods=['POST'])
+def minecraft_exec():
+	if mc_process is None:
+		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
+	data = flask.request.get_json(force=True)
+	if not (('command' in data) and isinstance(data['command'], list)):
+		return flask.jsonify(status=ERR_INVALID_REQUEST)
+	mc_process.stdin.write(' '.join(data['command']) + '\n')
+	return flask.jsonify(status=0)
+
+'''
+request: {
+}
+response: {
+	running: True,
+	description: 'A Minecraft Server',
+	players: {
+		max: 20,
+		online: 0
+	},
+	version: {
+		name: '1.7.5',
+		protocol: 4
+	}
+}
+'''
+@app.route('/query')
+def minecraft_query():
+	if mc_process is None:
+		return flask.jsonify(status=0, running=False)
+	data = minecraft_ping('localhost', 25565)
+	data['running'] = True
+	data['status'] = 0
+	return flask.jsonify(**data)
+
+'''
+request: {
+	message: 'Hello world'
+}
+response: {
+}
+'''
+@app.route('/broadcast')
+def minceraft_broadcast():
+	if mc_process is None:
+		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
+	data = flask.request.get_json(force=True)
+	if not 'message' in data:
+		return flask.jsonify(status=ERR_INVALID_REQUEST)
+	mc_process.stdin.write(message + '\n')
+	return flask.jsonify(status=0)
+
+'''
+request: {
+	properties: {
+		key: value
+	}
+}
+response: {
+}
+'''
+@app.route('/update_server_properties', methods=['POST'])
+def minecraft_update_server_properties():
+	if not mc_process is None:
+		return flask.jsonify(status=ERR_SERVER_RUNNING)
+	data = flask.request.get_json(force=True)
+	if not isinstance(data.get('properties', dict)):
+		return flask.jsonify(status=ERR_INVALID_REQUEST)
+	properties = MinecraftProperties('server.properties')
+	properties.update_properties(data['properties'])
+	return flask.jsonify(status=0)
+
+
+# Minecraft functions
+
+def mc_shutdown():
+	global mc_process
+	if mc_process is None:
+		return None
+	mc_process.stdin.write('stop\n')
+	retcode = mc_process.wait()
+	mc_process = None
+	return retcode
+
 class MinecraftProperties:
 	def __init__(self, f):
 		self.f = f
@@ -68,121 +233,6 @@ def minecraft_ping(host, port):
 	s.close()
 
 	return json.loads(response.decode('utf8'))
-
-# Classes
-class MinecraftPing:
-	def __init__(self, host, port):
-		self.host = host
-		self.port = port
-
-	def ping(self):
-		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		s.connect((self.host, self.port))
-
-		s.send(pack_string(b'\x00\x04' + pack_string(self.host.encode('utf8')) + pack_port(self.port) + b'\x01'))
-		s.send(pack_string(b'\x00'))
-
-		packet_length = unpack_varint(s)
-		packet_id = unpack_varint(s)
-		l = unpack_varint(s)
-
-		response = s.recv(l)
-
-		s.close()
-
-		return json.loads(response.decode('utf8'))
-
-app = flask.Flask(__name__)
-mc_process = None
-
-# Handlers
-
-def signal_handler(signum=None, frame=None):
-	mc_shutdown()
-	sys.exit(0)
-
-def subprocess_preexec_handler():
-	os.setpgrp()
-
-# Routes
-
-@app.route('/')
-def index():
-	return 'Minecraft server web wrapper.'
-
-@app.route('/start', methods=['POST'])
-def minecraft_start():
-	global mc_process
-	if not mc_process is None:
-		return flask.jsonify(error='Minecraft server already running.')
-	data = flask.request.get_json(force=True)
-	if not (('command' in data) and isinstance(data['command'], list)):
-		return flask.jsonify(error='Invalid command.')
-	mc_process = subprocess.Popen(data['command'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=False)
-	return flask.jsonify(status='ok', pid=mc_process.pid)
-
-@app.route('/stop')
-def minecraft_stop():
-	if mc_process is None:
-		return flask.jsonify(error='Minecraft server not running.')
-	return flask.jsonify(retcode=mc_shutdown())
-
-@app.route('/pid')
-def minecraft_pid():
-	if mc_process is None:
-		return flask.jsonify(error='Minecraft server not running.')
-	return flask.jsonify(pid=mc_process.pid)
-
-@app.route('/exec', methods=['POST'])
-def minecraft_exec():
-	if mc_process is None:
-		return flask.jsonify(error='Minecraft server not running.')
-	data = flask.request.get_json(force=True)
-	if not (('command' in data) and isinstance(data['command'], list)):
-		return flask.jsonify(error='Invalid command.')
-	mc_process.stdin.write(' '.join(data['command']) + '\n')
-	return flask.jsonify(status='ok')
-
-@app.route('/query')
-def minecraft_query():
-	if mc_process is None:
-		return flask.jsonify(running=False)
-	data = minecraft_ping('localhost', 25565)
-	data['running'] = True
-	return flask.jsonify(**data)
-
-@app.route('/broadcast')
-def minceraft_broadcast():
-	if mc_process is None:
-		return flask.jsonify(error='Minecraft server not running.')
-	data = flask.request.get_json(force=True)
-	if not 'message' in data:
-		return flask.jsonify(error='Invalid message')
-	mc_process.stdin.write(message + '\n')
-	return flask.jsonify(status='ok')
-
-@app.route('/update_server_properties', methods=['POST'])
-def minecraft_update_server_properties():
-	if not mc_process is None:
-		return flask.jsonify(error='Minecraft server already running.')
-	data = flask.request.get_json(force=True)
-	if not (('properties' in data) and isinstance(data['properties'], dict)):
-		return flask.jsonify(error='Invalid properties')
-	properties = MinecraftProperties('server.properties')
-	properties.update_properties(data['properties'])
-	return flask.jsonify(status='ok')
-
-
-# Minecraft functions
-
-def mc_shutdown():
-	global mc_process
-	if mc_process is None:
-		return None
-	mc_process.stdin.write('stop\n')
-	retcode = mc_process.wait()
-	mc_process = None
-	return retcode
 
 # Main
 
