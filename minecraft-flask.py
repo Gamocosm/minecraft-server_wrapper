@@ -95,7 +95,7 @@ def minecraft_exec():
 	if mc_process is None:
 		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
 	data = flask.request.get_json(force=True)
-	if not (('command' in data) and isinstance(data['command'], list)):
+	if not isinstance(data.get('command'), list):
 		return flask.jsonify(status=ERR_INVALID_REQUEST)
 	mc_process.stdin.write(' '.join(data['command']) + '\n')
 	return flask.jsonify(status=0)
@@ -132,14 +132,14 @@ request: {
 response: {
 }
 '''
-@app.route('/broadcast')
+@app.route('/broadcast', methods=['POST'])
 def minceraft_broadcast():
 	if mc_process is None:
 		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
 	data = flask.request.get_json(force=True)
 	if not 'message' in data:
 		return flask.jsonify(status=ERR_INVALID_REQUEST)
-	mc_process.stdin.write(message + '\n')
+	mc_process.stdin.write('say ' + data['message'] + '\n')
 	return flask.jsonify(status=0)
 
 '''
@@ -240,7 +240,7 @@ def main():
 	for sig in [signal.SIGTERM, signal.SIGINT]:
 		signal.signal(sig, signal_handler)
 
-	app.run(debug=True)
+	app.run()
 
 if __name__ == '__main__':
 	main()
