@@ -33,7 +33,7 @@ ERR_OTHER = 128
 
 @app.route('/')
 def index():
-	return json.stringify(message='Minecraft server web wrapper.', status=0)
+	return flask.jsonify(message='Minecraft server web wrapper.', status=0)
 
 '''
 request: {
@@ -54,7 +54,7 @@ def minecraft_start():
 		return flask.jsonify(status=ERR_INVALID_REQUEST)
 	if not os.path.isfile('minecraft_server.jar'):
 		return flask.jsonify(status=ERR_NO_MINECRAFT_JAR)
-	mc_process = subprocess.Popen(['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server.jar', 'nogui'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=False)
+	mc_process = subprocess.Popen(['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, cwd='/home/mcuser/minecraft/', shell=False)
 	return flask.jsonify(status=0, pid=mc_process.pid)
 
 '''
@@ -143,25 +143,53 @@ def minceraft_broadcast():
 	return flask.jsonify(status=0)
 
 '''
+- properties only mandatory for POST
+- returns new/current properties
 request: {
 	properties: {
 		key: value
 	}
 }
 response: {
+	properties: {
+		key: value
+	}
 }
 '''
-@app.route('/update_server_properties', methods=['POST'])
-def minecraft_update_server_properties():
-	if not mc_process is None:
-		return flask.jsonify(status=ERR_SERVER_RUNNING)
-	data = flask.request.get_json(force=True)
-	if not isinstance(data.get('properties', dict)):
-		return flask.jsonify(status=ERR_INVALID_REQUEST)
-	properties = MinecraftProperties('server.properties')
-	properties.update_properties(data['properties'])
-	return flask.jsonify(status=0)
+@app.route('/server_properties', methods=['GET', 'POST'])
+def minecraft_server_properties():
+	if flask.request.method == 'POST':
+		if not mc_process is None:
+			return flask.jsonify(status=ERR_SERVER_RUNNING)
+		data = flask.request.get_json(force=True)
+		if not isinstance(data.get('properties', dict)):
+			return flask.jsonify(status=ERR_INVALID_REQUEST)
+		properties = MinecraftProperties('server.properties')
+		properties.update_properties(data['properties'])
+	properties = minecraft_read_server_properties('server.properties')
+	return flask.jsonify(status=0, properties=properties)
 
+'''
+- players only mandatory for POST
+- returns new/current whitelisted players
+request: {
+	players: ['a', 'b', 'c']
+}
+response: {
+	players: ['a', 'b', 'c']
+}
+'''
+@app.route('/whitelist', methods=['GET', 'POST'])
+def minecraft_whitelist():
+	if flask.request.method == 'POST':
+		if not mc_process is None:
+			return flask.jsonify(status=ERR_SERVER_RUNNING)
+		data = flask.request.get_json(force=True)
+		if not isinstance(data.get('players', list)):
+			return flask.jsonify(status=ERR_INVALID_REQUEST)
+		minecraft_update_whitelist(data['players'])
+	players = minecraft_read_whitelist('white-list.txt')
+	return flask.jsonify(status=0, players=players)
 
 # Minecraft functions
 
@@ -234,13 +262,35 @@ def minecraft_ping(host, port):
 
 	return json.loads(response.decode('utf8'))
 
+def minecraft_read_server_properties(path):
+	properties = {}
+	with open(path) as f:
+		for line in f:
+			if '=' in line:
+				keyval = line.split('=')
+				properties[keyval[0]] = keyval[1].strip()
+	return properties
+
+def minecraft_read_whitelist(path):
+	players = []
+	with open(path) as f:
+		for line in f:
+			if len(line.strip()) > 0:
+				players.append(line.strip())
+	return players
+
+def minecraft_update_whitelist(path, players):
+	with open(path, 'w') as f:
+		for each in players:
+			f.write(each + '\n')
+
 # Main
 
 def main():
 	for sig in [signal.SIGTERM, signal.SIGINT]:
 		signal.signal(sig, signal_handler)
 
-	app.run()
+	app.run(host='0.0.0.0')
 
 if __name__ == '__main__':
 	main()
