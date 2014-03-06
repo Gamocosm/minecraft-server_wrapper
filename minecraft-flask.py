@@ -8,6 +8,8 @@ import struct
 import json
 import shutil
 import tempfile
+import tarfile
+import datetime
 
 app = flask.Flask(__name__)
 mc_process = None
@@ -191,6 +193,16 @@ def minecraft_whitelist():
 	players = minecraft_read_whitelist('white-list.txt')
 	return flask.jsonify(status=0, players=players)
 
+'''
+'''
+@app.route('/backup', methods=['POST'])
+def minecraft_backup():
+	if not mc_process is None:
+		return flask.jsonify(status=ERR_SERVER_RUNNING)
+	targz_name = minecraft_targz_world()
+	minecraft_trim_old_backups()
+	return flask.jsonify(status=0)
+
 # Minecraft functions
 
 def mc_shutdown():
@@ -283,6 +295,34 @@ def minecraft_update_whitelist(path, players):
 	with open(path, 'w') as f:
 		for each in players:
 			f.write(each + '\n')
+
+def minecraft_targz_world():
+	if os.path.isfile('backups'):
+		os.remove('backups')
+	if not os.path.exists('backups'):
+		os.makedirs('backups')
+	targz_name = 'backups/minecraft-world_backup-' + str(datetime.datetime.today()).replace('-', '_').replace(' ', '-').replace(':', '_').replace('.', '-') + '.tar.gz'
+	world_name = minecraft_read_server_properties('server.properties').get('level-name')
+	if world_name is None or not (os.path.exists(world_name) and os.path.isdir(world_name)):
+		raise RuntimeError('World name not found.')
+	if os.path.exists(targz_name):
+		if os.path.isfile(targz_name):
+			os.remove(targz_name)
+		else:
+			shutil.rmtree(targz_name)
+	with tarfile.open(targz_name, 'w:gz') as tar:
+		tar.add(world_name, arcname='world')
+	return targz_name
+
+def minecraft_trim_old_backups():
+	if os.path.isfile('backups'):
+		os.remove('backups')
+	if not os.path.exists('backups'):
+		os.makedirs('backups')
+	backups = [f for f in os.listdir('backups') if f.endswith('.tar.gz')]
+	backups.sort()
+	for i in range(10, len(backups)):
+		os.remove('backups/' + backups[i - 10])
 
 # Main
 
