@@ -54,7 +54,7 @@ def minecraft_start():
 	ram = data.get('ram')
 	if ram is None:
 		return flask.jsonify(status=ERR_INVALID_REQUEST)
-	if not os.path.isfile('minecraft_server.jar'):
+	if not os.path.isfile('minecraft_server-run.jar'):
 		return flask.jsonify(status=ERR_NO_MINECRAFT_JAR)
 	mc_process = subprocess.Popen(['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, cwd='/home/mcuser/minecraft/', shell=False)
 	return flask.jsonify(status=0, pid=mc_process.pid)
@@ -194,14 +194,39 @@ def minecraft_whitelist():
 	return flask.jsonify(status=0, players=players)
 
 '''
+request: {
+	url_and_fields: {
+		key: string,
+		access_key_id: string,
+		policy: string,
+		signature: string,
+		url: string
+	}
+}
+response: {
+	retcode: int
+}
 '''
 @app.route('/backup', methods=['POST'])
 def minecraft_backup():
 	if not mc_process is None:
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
+	data = flask.request.get_json(force=True).get('url_and_fields')
+	if data is None:
+		return flask.jsonify(status=ERR_INVALID_REQUEST)
+	fields = ['key', 'access_key_id', 'policy', 'signature', 'url']
+	curl_command = ['curl']
+	for f in fields:
+		if not f in data:
+			return flask.jsonify(status=ERR_INVALID_REQUEST)
+		# curl_command.append('-F')
+		# curl_command.append(f + '=' + data[f])
 	targz_name = minecraft_targz_world()
 	minecraft_trim_old_backups()
-	return flask.jsonify(status=0)
+	curl_command.extend(['-F', 'key=' + data['key'], '-F', 'acl=public-read', '-F', 'AWSAccessKeyId=' + data['access_key_id'], '-F', 'Policy=' + data['policy'], '-F', 'Signature=' + data['signature'], '-F', 'Content-Type=application/x-gzip', '-F', 'file=@' + targz_name])
+	curl_command.append(data['url'])
+	retcode = subprocess.call(curl_command)
+	return flask.jsonify(status=0, retcode=retcode)
 
 # Minecraft functions
 
