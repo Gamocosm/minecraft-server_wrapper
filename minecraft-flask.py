@@ -10,9 +10,100 @@ import shutil
 import tempfile
 import tarfile
 import datetime
+import atexit
 
 app = flask.Flask(__name__)
 mc_process = None
+
+# Daemon
+class Daemon:
+	def __init__(self):
+		self.stdin = '/dev/null'
+		self.stdout = '/dev/null'
+		self.stderr = '/dev/null'
+		self.pidfile = ''
+
+	def daemonize(self):
+		try:
+			pid = os.fork()
+			if pid > 0:
+				sys.exit(0)
+		except OSError, e:
+			sys.exit(1)
+
+		os.chdir('/')
+		os.setsid()
+		os.umask(0)
+
+		try:
+			pid = os.fork()
+			if pid > 0:
+				sys.exit(0)
+		except OSError, e:
+			sys.exit(1)
+
+		sys.stdout.flush()
+		sys.stderr.flush()
+
+		with open(self.stdin, 'r') as si, open(self.stdout, 'a+') as so, open(self.stderr, 'a+') as se:
+			os.dup2(si.fileno(), sys.stdin.fileno())
+			os.dup2(so.fileno(), sys.stdout.fileno())
+			os.dup2(se.fileno(), sys.stderr.fileno())
+
+		atexit.register(self.delete_pid)
+		with open(self.pidfile, 'w+') as f:
+			f.write('%d\n' % os.getpid())
+
+	def delete_pid(self):
+		os.remove(self.pidfile)
+
+	def start(self):
+		if os.path.exists(self.pidfile):
+			sys.exit(1)
+
+		self.daemonize()
+		self.run()
+
+	def pid():
+		try:
+			with open(self.pidfile) as f:
+				return int(f.read().strip())
+		except IOError:
+			pass
+		return None
+
+
+	def stop(self):
+		pid = self.pid()
+
+		if pid is None:
+			sys.exit(1)
+
+		try:
+			while pid_exists(pid):
+				os.kill(pid, signal.SIGTERM)
+		except OSError:
+			sys.exit(1)
+		finally:
+			os.remove(self.pidfile)
+
+	def restart(self):
+		if not self.pid() is None:
+			self.stop()
+		self.start()
+
+	def run(self):
+		for sig in [signal.SIGTERM, signal.SIGINT]:
+		signal.signal(sig, signal_handler)
+
+		app.run(host='0.0.0.0')
+
+def pid_exists(pid):
+	try:
+		os.kill(pid, 0)
+	except OSError:
+		return False
+	return True
 
 # Handlers
 
@@ -348,10 +439,8 @@ def minecraft_trim_old_backups():
 # Main
 
 def main():
-	for sig in [signal.SIGTERM, signal.SIGINT]:
-		signal.signal(sig, signal_handler)
-
-	app.run(host='0.0.0.0')
+	daemon = Daemon()
+	daemon.start()
 
 if __name__ == '__main__':
 	main()
