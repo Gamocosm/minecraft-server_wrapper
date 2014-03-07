@@ -195,13 +195,11 @@ def minecraft_whitelist():
 
 '''
 request: {
-	url_and_fields: {
-		key: string,
-		access_key_id: string,
-		policy: string,
-		signature: string,
-		url: string
-	}
+	key: string,
+	access_key_id: string,
+	policy: string,
+	signature: string,
+	url: string
 }
 response: {
 	retcode: int
@@ -211,9 +209,7 @@ response: {
 def minecraft_backup():
 	if not mc_process is None:
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
-	data = flask.request.get_json(force=True).get('url_and_fields')
-	if data is None:
-		return flask.jsonify(status=ERR_INVALID_REQUEST)
+	data = flask.request.get_json(force=True)
 	fields = ['key', 'access_key_id', 'policy', 'signature', 'url']
 	curl_command = ['curl']
 	for f in fields:
@@ -223,7 +219,7 @@ def minecraft_backup():
 		# curl_command.append(f + '=' + data[f])
 	targz_name = minecraft_targz_world()
 	minecraft_trim_old_backups()
-	curl_command.extend(['-F', 'key=' + data['key'], '-F', 'acl=public-read', '-F', 'AWSAccessKeyId=' + data['access_key_id'], '-F', 'Policy=' + data['policy'], '-F', 'Signature=' + data['signature'], '-F', 'Content-Type=application/x-gzip', '-F', 'file=@' + targz_name])
+	curl_command.extend(['-F', 'key=' + data['key'], '-F', 'AWSAccessKeyId=' + data['access_key_id'], '-F', 'Policy=' + data['policy'], '-F', 'Signature=' + data['signature'], '-F', 'file=@' + targz_name])
 	curl_command.append(data['url'])
 	retcode = subprocess.call(curl_command)
 	return flask.jsonify(status=0, retcode=retcode)
