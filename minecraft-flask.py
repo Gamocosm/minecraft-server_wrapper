@@ -24,6 +24,11 @@ def signal_handler(signum=None, frame=None):
 def subprocess_preexec_handler():
 	os.setpgrp()
 
+# Helpers
+def response_set_http_code(res, code):
+	res.status_code = code
+	return res
+
 # Routes
 '''
 All responses include a status: int field. 0 for no errors
@@ -54,9 +59,9 @@ def minecraft_start():
 	data = flask.request.get_json(force=True)
 	ram = data.get('ram')
 	if ram is None:
-		return flask.jsonify(status=ERR_INVALID_REQUEST)
+		return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 	if not os.path.isfile('minecraft_server-run.jar'):
-		return flask.jsonify(status=ERR_NO_MINECRAFT_JAR)
+		return response_set_http_code(flask.jsonify(status=ERR_NO_MINECRAFT_JAR), 500)
 	mc_process = subprocess.Popen(['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, cwd='/home/mcuser/minecraft/', shell=False)
 	return flask.jsonify(status=0, pid=mc_process.pid)
 
@@ -96,10 +101,10 @@ response: {
 @app.route('/exec', methods=['POST'])
 def minecraft_exec():
 	if mc_process is None:
-		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
+		return response_set_http_code(flask.jsonify(status=ERR_SERVER_NOT_RUNNING), 400)
 	data = flask.request.get_json(force=True)
 	if not isinstance(data.get('command'), list):
-		return flask.jsonify(status=ERR_INVALID_REQUEST)
+		return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 	mc_process.stdin.write(' '.join(data['command']) + '\n')
 	return flask.jsonify(status=0)
 
@@ -138,10 +143,10 @@ response: {
 @app.route('/broadcast', methods=['POST'])
 def minceraft_broadcast():
 	if mc_process is None:
-		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
+		return response_set_http_code(flask.jsonify(status=ERR_SERVER_NOT_RUNNING), 400)
 	data = flask.request.get_json(force=True)
 	if not 'message' in data:
-		return flask.jsonify(status=ERR_INVALID_REQUEST)
+		return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 	mc_process.stdin.write('say ' + data['message'] + '\n')
 	return flask.jsonify(status=0)
 
@@ -162,11 +167,9 @@ response: {
 @app.route('/server_properties', methods=['GET', 'POST'])
 def minecraft_server_properties():
 	if flask.request.method == 'POST':
-		if not mc_process is None:
-			return flask.jsonify(status=ERR_SERVER_RUNNING)
 		data = flask.request.get_json(force=True)
 		if not isinstance(data.get('properties', dict)):
-			return flask.jsonify(status=ERR_INVALID_REQUEST)
+			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 		properties = MinecraftProperties('server.properties')
 		properties.update_properties(data['properties'])
 	properties = minecraft_read_server_properties('server.properties')
@@ -185,11 +188,9 @@ response: {
 @app.route('/whitelist', methods=['GET', 'POST'])
 def minecraft_whitelist():
 	if flask.request.method == 'POST':
-		if not mc_process is None:
-			return flask.jsonify(status=ERR_SERVER_RUNNING)
 		data = flask.request.get_json(force=True)
 		if not isinstance(data.get('players', list)):
-			return flask.jsonify(status=ERR_INVALID_REQUEST)
+			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 		minecraft_update_whitelist(data['players'])
 	players = minecraft_read_whitelist('white-list.txt')
 	return flask.jsonify(status=0, players=players)
@@ -215,7 +216,7 @@ def minecraft_backup():
 	curl_command = ['curl']
 	for f in fields:
 		if not f in data:
-			return flask.jsonify(status=ERR_INVALID_REQUEST)
+			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 		# curl_command.append('-F')
 		# curl_command.append(f + '=' + data[f])
 	targz_name = minecraft_targz_world()
