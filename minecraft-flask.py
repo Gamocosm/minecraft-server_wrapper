@@ -226,6 +226,25 @@ def minecraft_backup():
 	retcode = subprocess.call(curl_command)
 	return flask.jsonify(status=0, retcode=retcode)
 
+'''
+request: {
+}
+response: {
+	version: 1.2.3,
+	status: 0
+}
+'''
+@app.route('/version')
+def minecraft_image_version():
+	version_file = os.environ.get('IMAGE_VERSION_FILE')
+	if version_file is None:
+		return flask.jsonify(status=0, version="0")
+	try:
+		with open(version_file) as f:
+			return flask.jsonify(status=0, version=f.readline().strip())
+	except IOError:
+		return response_set_http_code(flask.jsonify(status=ERR_OTHER), 500)
+
 # Minecraft functions
 
 def mc_shutdown():
