@@ -135,14 +135,16 @@ request: {
 }
 response: {
 	running: True,
-	description: 'A Minecraft Server',
-	players: {
-		max: 20,
-		online: 0
-	},
-	version: {
-		name: '1.7.5',
-		protocol: 4
+	ping: {
+		description: 'A Minecraft Server',
+		players: {
+			max: 20,
+			online: 0
+		},
+		version: {
+			name: '1.7.5',
+			protocol: 4
+		}
 	}
 }
 '''
@@ -152,8 +154,9 @@ def minecraft_query():
 	if mc_process is None:
 		return flask.jsonify(status=0, running=False)
 	data = minecraft_ping('localhost', 25565)
-	data['running'] = True
-	data['status'] = 0
+	if data is None:
+		return flask.jsonify(status=0, running=False)
+	data = {'ping': data, 'running': True, 'status': 0}
 	return flask.jsonify(**data)
 
 '''
@@ -328,19 +331,24 @@ def pack_port(port):
 	return struct.pack('>H', port)
 
 def minecraft_ping(host, port):
-	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	s.connect((host, port))
+	s = None
+	try:
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.connect((host, port))
 
-	s.send(pack_string(b'\x00\x04' + pack_string(host.encode('utf8')) + pack_port(port) + b'\x01'))
-	s.send(pack_string(b'\x00'))
+		s.send(pack_string(b'\x00\x04' + pack_string(host.encode('utf8')) + pack_port(port) + b'\x01'))
+		s.send(pack_string(b'\x00'))
 
-	packet_length = unpack_varint(s)
-	packet_id = unpack_varint(s)
-	l = unpack_varint(s)
+		packet_length = unpack_varint(s)
+		packet_id = unpack_varint(s)
+		l = unpack_varint(s)
 
-	response = s.recv(l)
-
-	s.close()
+		response = s.recv(l)
+	except socket.err:
+		return None
+	finally:
+		if not s is None:
+			s.close()
 
 	return json.loads(response.decode('utf8'))
 
