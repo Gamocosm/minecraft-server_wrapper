@@ -11,6 +11,7 @@ import tempfile
 import tarfile
 import datetime
 import atexit
+import functools
 
 app = flask.Flask(__name__)
 mc_process = None
@@ -29,6 +30,22 @@ def response_set_http_code(res, code):
 	res.status_code = code
 	return res
 
+# Helpers
+def response_check_auth(username, password):
+	return username == os.environ.get('MINECRAFT_FLASK_USERNAME') and password == os.environ.get('MINECRAFT_FLASK_PASSWORD')
+
+def response_authenticate():
+	return response_set_http_code(flask.jsonify(status=ERR_NO_AUTH), 400)
+
+def requires_auth(f):
+	@functools.wraps(f)
+	def decorated(*args, **kwargs):
+		auth = flask.request.authorization
+		if not auth or not response_check_auth(auth.username, auth.password):
+			return response_authenticate()
+		return f(*args, **kwargs)
+	return decorated
+
 # Routes
 '''
 All responses include a status: int field. 0 for no errors
@@ -37,6 +54,7 @@ ERR_SERVER_RUNNING = 1
 ERR_SERVER_NOT_RUNNING = 2
 ERR_NO_MINECRAFT_JAR = 3
 ERR_INVALID_REQUEST = 4
+ERR_NO_AUTH = 5
 ERR_OTHER = 128
 
 @app.route('/')
@@ -52,6 +70,7 @@ response: {
 }
 '''
 @app.route('/start', methods=['POST'])
+@requires_auth
 def minecraft_start():
 	global mc_process
 	if not mc_process is None:
@@ -73,6 +92,7 @@ response: {
 }
 '''
 @app.route('/stop')
+@requires_auth
 def minecraft_stop():
 	if mc_process is None:
 		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
@@ -86,6 +106,7 @@ response: {
 }
 '''
 @app.route('/pid')
+@requires_auth
 def minecraft_pid():
 	if mc_process is None:
 		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
@@ -99,6 +120,7 @@ response: {
 }
 '''
 @app.route('/exec', methods=['POST'])
+@requires_auth
 def minecraft_exec():
 	if mc_process is None:
 		return response_set_http_code(flask.jsonify(status=ERR_SERVER_NOT_RUNNING), 400)
@@ -125,6 +147,7 @@ response: {
 }
 '''
 @app.route('/query')
+@requires_auth
 def minecraft_query():
 	if mc_process is None:
 		return flask.jsonify(status=0, running=False)
@@ -141,6 +164,7 @@ response: {
 }
 '''
 @app.route('/broadcast', methods=['POST'])
+@requires_auth
 def minceraft_broadcast():
 	if mc_process is None:
 		return response_set_http_code(flask.jsonify(status=ERR_SERVER_NOT_RUNNING), 400)
@@ -165,10 +189,11 @@ response: {
 }
 '''
 @app.route('/server_properties', methods=['GET', 'POST'])
+@requires_auth
 def minecraft_server_properties():
 	if flask.request.method == 'POST':
 		data = flask.request.get_json(force=True)
-		if not isinstance(data.get('properties', dict)):
+		if not isinstance(data.get('properties'), dict):
 			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 		properties = MinecraftProperties('server.properties')
 		properties.update_properties(data['properties'])
@@ -186,10 +211,11 @@ response: {
 }
 '''
 @app.route('/whitelist', methods=['GET', 'POST'])
+@requires_auth
 def minecraft_whitelist():
 	if flask.request.method == 'POST':
 		data = flask.request.get_json(force=True)
-		if not isinstance(data.get('players', list)):
+		if not isinstance(data.get('players'), list):
 			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 		minecraft_update_whitelist(data['players'])
 	players = minecraft_read_whitelist('white-list.txt')
@@ -208,6 +234,7 @@ response: {
 }
 '''
 @app.route('/backup', methods=['POST'])
+@requires_auth
 def minecraft_backup():
 	if not mc_process is None:
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
@@ -235,6 +262,7 @@ response: {
 }
 '''
 @app.route('/version')
+@requires_auth
 def minecraft_image_version():
 	version_file = os.environ.get('IMAGE_VERSION_FILE')
 	if version_file is None:
