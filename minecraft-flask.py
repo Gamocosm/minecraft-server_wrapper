@@ -276,6 +276,25 @@ def minecraft_image_version():
 	except IOError:
 		return response_set_http_code(flask.jsonify(status=ERR_OTHER), 500)
 
+'''
+request: {
+	version: string
+}
+response: {
+	retcode: 0
+}
+'''
+@app.route('/select_version')
+@requires_auth
+def minecraft_select_version():
+	if not mc_process is None:
+		return response_set_http_code(flask.jsonify(status=ERR_SERVER_RUNNING), 400)
+	data = flask.request.get_json(force=True)
+	if not 'version' in data:
+		return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
+	retcode = subprocess.call(['/opt/minecraft-files/minecraft-select', data['version']])
+	return flask.jsonify(status=0, retcode=retcode)
+
 # Minecraft functions
 
 def mc_shutdown():
