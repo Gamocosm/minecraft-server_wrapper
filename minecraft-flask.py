@@ -284,7 +284,7 @@ response: {
 	retcode: 0
 }
 '''
-@app.route('/select_version')
+@app.route('/select_version', methods=['POST'])
 @requires_auth
 def minecraft_select_version():
 	if not mc_process is None:
