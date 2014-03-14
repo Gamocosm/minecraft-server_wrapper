@@ -365,7 +365,7 @@ def minecraft_ping(host, port):
 		l = unpack_varint(s)
 
 		response = s.recv(l)
-	except socket.err:
+	except socket.error:
 		return None
 	finally:
 		if not s is None:
