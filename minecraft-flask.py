@@ -12,6 +12,7 @@ import tarfile
 import datetime
 import atexit
 import functools
+import traceback
 
 app = flask.Flask(__name__)
 mc_process = None
@@ -220,7 +221,7 @@ def minecraft_whitelist():
 		data = flask.request.get_json(force=True)
 		if not isinstance(data.get('players'), list):
 			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-		minecraft_update_whitelist(data['players'])
+		minecraft_update_whitelist('white-list.txt', data['players'])
 	players = minecraft_read_whitelist('white-list.txt')
 	return flask.jsonify(status=0, players=players)
 
@@ -365,7 +366,9 @@ def minecraft_ping(host, port):
 		l = unpack_varint(s)
 
 		response = s.recv(l)
-	except socket.error:
+	except Exception as e:
+		print('Caught exception in minecraft ping.')
+		traceback.print_exc()
 		return None
 	finally:
 		if not s is None:
