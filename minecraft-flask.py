@@ -292,7 +292,9 @@ def minecraft_select_version():
 	data = flask.request.get_json(force=True)
 	if not 'version' in data:
 		return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-	retcode = subprocess.call(['/opt/minecraft-files/minecraft-select', data['version']])
+	retcode = 0
+	if not data['version'] is None:
+		retcode = subprocess.call(['/opt/minecraft-files/minecraft-select', data['version']])
 	return flask.jsonify(status=0, retcode=retcode)
 
 # Minecraft functions
@@ -427,7 +429,7 @@ def main():
 	for sig in [signal.SIGTERM, signal.SIGINT]:
 		signal.signal(sig, signal_handler)
 
-	app.run(host='0.0.0.0')
+	app.run(host='0.0.0.0', debug=True)
 
 if __name__ == '__main__':
 	main()
