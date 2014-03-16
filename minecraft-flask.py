@@ -96,7 +96,7 @@ response: {
 @requires_auth
 def minecraft_stop():
 	if mc_process is None:
-		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
+		return flask.jsonify(status=0, retcode=mc_shutdown())
 	return flask.jsonify(status=0, retcode=mc_shutdown())
 
 '''
@@ -353,6 +353,9 @@ def pack_port(port):
 	return struct.pack('>H', port)
 
 def minecraft_ping(host, port):
+	return minecraft_ping_one_seven(host, port)
+
+def minecraft_ping_one_seven(host, port):
 	s = None
 	try:
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -374,7 +377,42 @@ def minecraft_ping(host, port):
 		if not s is None:
 			s.close()
 
-	return json.loads(response.decode('utf8'))
+def minecraft_ping_one_six(host, port):
+	def pack_string(s):
+		return struct.pack('>H', len(s)) + s.encode('utf-16be')
+	try:
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.connect((host, port))
+		s.send(struct.pack('BBB', 0xfe, 0x01, 0xfa))
+		s.send(pack_string('MC|PingHost'))
+		s.send(struct.pack('>H', 7 + 2 * len(host)))
+		s.send(struct.pack('B', 74))
+		s.send(pack_string(host))
+		s.send(struct.pack('>H', port))
+		fb = struct.unpack('B', s.recv(1))[0]
+		if fb != 0xff:
+			raise Exception('Minecraft 1.6 ping server responded with first byte {0}'.format(fb))
+		length = struct.unpack('>H', s.recv(2))[0]
+		data = s.recv(length * 2)
+		response = data.decode('utf-16be').split('\x00')
+		if response[0] != '\u00a71':
+			raise Exception('Minecraft 1.6 ping server responded with {0}'.format(response))
+		return {
+			'protocol_version': response[1],
+			'minecraft_version': response[2],
+			'motd': response[3],
+			'current_players': response[4],
+			'max_players': response[5]
+		}
+	except Exception as e:
+		print('Caught exception in minecraft ping 1.6.')
+		traceback.print_exc()
+		return None
+	finally:
+		if not s is None:
+			s.close()
+
+	return None
 
 def minecraft_read_server_properties(path):
 	properties = {}
