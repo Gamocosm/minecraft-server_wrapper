@@ -441,6 +441,31 @@ def minecraft_ping_one_four(host, port):
 			s.close()
 	return None
 
+def minecraft_ping_beta_one_eight(host, port):
+	try:
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.connect((host, port))
+		s.send(struct.pack('B', 0xfe))
+		fb = struct.unpack('B', s.recv(1))[0]
+		if fb != 0xff:
+			raise Exception('Minecraft b1.8 ping invalid packet id {0}'.format(fb))
+		length = struct.unpack('>H', s.recv(2))[0]
+		data = s.recv(length * 2).decode('utf-16be')
+		parts = data.split('\u00a7')
+		return {
+			'motd': parts[0],
+			'current_players': parts[1],
+			'max_players': parts[2]
+		}
+	except Exception as e:
+		print('Caught exception in minecraft ping b1.8.')
+		traceback.print_exc()
+		return None
+	finally:
+		if not s is None:
+			s.close()
+	return None
+
 def minecraft_read_server_properties(path):
 	properties = {}
 	with open(path) as f:
