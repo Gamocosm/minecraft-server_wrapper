@@ -411,7 +411,34 @@ def minecraft_ping_one_six(host, port):
 	finally:
 		if not s is None:
 			s.close()
+	return None
 
+def minecraft_ping_one_four(host, port):
+	try:
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.connect((host, port))
+		s.send(struct.pack('BB', 0xfe, 0x01))
+		packet_id = struct.unpack('B', s.recv(1))[0]
+		if packet_id != 0xff:
+			raise Exception('Minecraft 1.4 ping invalid packet id {0}'.format(packet_id))
+		length = struct.unpack('>H', s.recv(2))[0]
+		data = s.recv(length * 2).decode('utf-16be')
+		parts = data[2:].split('\x00')
+		return {
+			'ping_version': parts[0],
+			'protocol_version': parts[1],
+			'minecraft_version': parts[2],
+			'motd': parts[3],
+			'current_players': parts[4],
+			'max_players': parts[5]
+		}
+	except Exception as e:
+		print('Caught exception in minecraft ping 1.4.')
+		traceback.print_exc()
+		return None
+	finally:
+		if not s is None:
+			s.close()
 	return None
 
 def minecraft_read_server_properties(path):
