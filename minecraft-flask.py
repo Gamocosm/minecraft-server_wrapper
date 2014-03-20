@@ -376,6 +376,7 @@ def minecraft_ping_one_seven(host, port):
 	finally:
 		if not s is None:
 			s.close()
+	return json.loads(response.decode('utf8'))
 
 def minecraft_ping_one_six(host, port):
 	def pack_string(s):
