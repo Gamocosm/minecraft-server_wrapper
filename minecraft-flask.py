@@ -74,15 +74,14 @@ response: {
 @requires_auth
 def minecraft_start():
 	global mc_process
-	if not mc_process is None:
-		return flask.jsonify(status=ERR_SERVER_RUNNING)
-	data = flask.request.get_json(force=True)
-	ram = data.get('ram')
-	if ram is None:
-		return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-	if not os.path.isfile('minecraft_server-run.jar'):
-		return response_set_http_code(flask.jsonify(status=ERR_NO_MINECRAFT_JAR), 500)
-	mc_process = subprocess.Popen(['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, cwd='/home/mcuser/minecraft/', shell=False)
+	if mc_process is None:
+		data = flask.request.get_json(force=True)
+		ram = data.get('ram')
+		if ram is None:
+			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
+		if not os.path.isfile('minecraft_server-run.jar'):
+			return response_set_http_code(flask.jsonify(status=ERR_NO_MINECRAFT_JAR), 500)
+		mc_process = subprocess.Popen(['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, cwd='/home/mcuser/minecraft/', shell=False)
 	return flask.jsonify(status=0, pid=mc_process.pid)
 
 '''
@@ -96,7 +95,7 @@ response: {
 @requires_auth
 def minecraft_stop():
 	if mc_process is None:
-		return flask.jsonify(status=0, retcode=mc_shutdown())
+		return flask.jsonify(status=0, retcode=0)
 	return flask.jsonify(status=0, retcode=mc_shutdown())
 
 '''
@@ -248,8 +247,6 @@ def minecraft_backup():
 	for f in fields:
 		if not f in data:
 			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-		# curl_command.append('-F')
-		# curl_command.append(f + '=' + data[f])
 	targz_name = minecraft_targz_world()
 	minecraft_trim_old_backups()
 	curl_command.extend(['-F', 'key=' + data['key'], '-F', 'AWSAccessKeyId=' + data['access_key_id'], '-F', 'Policy=' + data['policy'], '-F', 'Signature=' + data['signature'], '-F', 'file=@' + targz_name])
