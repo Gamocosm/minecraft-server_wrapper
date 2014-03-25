@@ -13,6 +13,7 @@ import datetime
 import atexit
 import functools
 import traceback
+import logging
 
 app = flask.Flask(__name__)
 mc_process = None
@@ -81,7 +82,7 @@ def minecraft_start():
 			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 		if not os.path.isfile('minecraft_server-run.jar'):
 			return response_set_http_code(flask.jsonify(status=ERR_NO_MINECRAFT_JAR), 500)
-		mc_process = subprocess.Popen(['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, cwd='/home/mcuser/minecraft/', shell=False)
+		mc_process = subprocess.Popen(['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui'], stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=False)
 	return flask.jsonify(status=0, pid=mc_process.pid)
 
 '''
@@ -312,17 +313,23 @@ class MinecraftProperties:
 
 	def update_properties(self, keyvals):
 		tmp = tempfile.NamedTemporaryFile(delete=False)
-		with open(self.f) as src:
-			for line in src:
-				if '=' in line:
-					k = line.split('=')[0]
-					if k in keyvals:
-						tmp.write(bytes(k + '=' + keyvals[k] + '\n', 'utf8'))
-						continue
-				tmp.write(bytes(line, 'utf8'))
-		tmp.close()
-		os.remove(self.f)
-		shutil.move(tmp.name, self.f)
+		try:
+			with open(self.f) as src:
+				for line in src:
+					if '=' in line:
+						k = line.split('=')[0]
+						if k in keyvals:
+							tmp.write(bytes(k + '=' + keyvals[k] + '\n', 'utf8'))
+							continue
+					tmp.write(bytes(line, 'utf8'))
+			tmp.close()
+			os.remove(self.f)
+			shutil.move(tmp.name, self.f)
+		finally:
+			try:
+				os.remove(tmp.name)
+			except IOError:
+				pass
 
 def pack_varint(x):
 	varint = b''
@@ -466,25 +473,34 @@ def minecraft_ping_beta_one_eight(host, port):
 
 def minecraft_read_server_properties(path):
 	properties = {}
-	with open(path) as f:
-		for line in f:
-			if '=' in line:
-				keyval = line.split('=')
-				properties[keyval[0]] = keyval[1].strip()
+	try:
+		with open(path) as f:
+			for line in f:
+				if '=' in line:
+					keyval = line.split('=')
+					properties[keyval[0]] = keyval[1].strip()
+	except IOError:
+		pass
 	return properties
 
 def minecraft_read_whitelist(path):
 	players = []
-	with open(path) as f:
-		for line in f:
-			if len(line.strip()) > 0:
-				players.append(line.strip())
+	try:
+		with open(path) as f:
+			for line in f:
+				if len(line.strip()) > 0:
+					players.append(line.strip())
+	except IOError:
+		pass
 	return players
 
 def minecraft_update_whitelist(path, players):
-	with open(path, 'w') as f:
-		for each in players:
-			f.write(each + '\n')
+	try:
+		with open(path, 'w') as f:
+			for each in players:
+				f.write(each + '\n')
+	except IOError:
+		pass
 
 def minecraft_targz_world():
 	if os.path.isfile('backups'):
@@ -519,8 +535,9 @@ def minecraft_trim_old_backups():
 def main():
 	for sig in [signal.SIGTERM, signal.SIGINT]:
 		signal.signal(sig, signal_handler)
-
-	app.run(host='0.0.0.0', debug=True)
+	handler = logging.StreamHandler()
+	app.logger.addHandler(handler)
+	app.run(host='0.0.0.0')
 
 if __name__ == '__main__':
 	main()
