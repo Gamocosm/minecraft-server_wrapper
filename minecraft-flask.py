@@ -14,6 +14,7 @@ import atexit
 import functools
 import traceback
 import logging
+import urllib.request
 
 app = flask.Flask(__name__)
 mc_process = None
@@ -296,6 +297,44 @@ def minecraft_select_version():
 		retcode = subprocess.call(['/opt/minecraft-files/minecraft-select', data['version']])
 	return flask.jsonify(status=0, retcode=retcode)
 
+'''
+request: {
+	oldpassword: string,
+	newpassword: string
+}
+response: {
+	retcode: 0
+}
+- retcode 1: permission denied; 3: unexpected failure, nothing done; see man passwd for other codes
+'''
+@app.route('/password', methods=['POST'])
+@requires_auth
+def computer_password():
+	data = flask.request.get_json(force=True)
+	if not ('oldpassword' in data and 'newpassword' in data):
+		return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
+	p = subprocess.Popen(['passwd'], universal_newlines=True)
+	p.stdin.write(data['oldpassword'] + '\n')
+	p.stdin.write(data['newpassword'] + '\n')
+	p.stdin.write(data['newpassword'] + '\n')
+	return flask.jsonify(status=0, retcode=p.wait())
+
+'''
+request: {
+	'url': string (optional)
+}
+response: {
+}
+'''
+@app.route('/update_wrapper', methods=['POST'])
+@requires_auth
+def update_wrapper():
+	data = flask.request.get_json(force=True)
+	url = data.get('url', 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/master/minecraft-flask.py')
+	with urllib.request.urlopen(url) as response, open(os.path.realpath(__file__), 'wb') as outfile:
+		shutil.copyfileobj(response, outfile)
+	return flask.jsonify(status=0)
+
 # Minecraft functions
 
 def mc_shutdown():
@@ -356,14 +395,39 @@ def pack_string(msg):
 def pack_port(port):
 	return struct.pack('>H', port)
 
+def make_ping_socket(host, port):
+	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s.connect((host, port))
+	s.settimeout(0.1)
+	return s
+
 def minecraft_ping(host, port):
-	return minecraft_ping_one_seven(host, port)
+	try:
+		try:
+			return minecraft_ping_one_seven(host, port)
+		except socket.timeout as e:
+			pass
+		try:
+			return minecraft_ping_one_six(host, port)
+		except socket.timeout as e:
+			pass
+		try:
+			return minecraft_ping_one_four(host, port)
+		except socket.timeout as e:
+			pass
+		try:
+			return minecraft_ping_beta_one_eight(host, port)
+		except socket.timeout as e:
+			pass
+	except Exception as e:
+		print('Caught exception in minecraft ping.')
+		traceback.print_exc()
+	return None
 
 def minecraft_ping_one_seven(host, port):
 	s = None
 	try:
-		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		s.connect((host, port))
+		s = make_ping_socket(host, port)
 
 		s.send(pack_string(b'\x00\x04' + pack_string(host.encode('utf8')) + pack_port(port) + b'\x01'))
 		s.send(pack_string(b'\x00'))
@@ -373,10 +437,6 @@ def minecraft_ping_one_seven(host, port):
 		l = unpack_varint(s)
 
 		response = s.recv(l)
-	except Exception as e:
-		print('Caught exception in minecraft ping.')
-		traceback.print_exc()
-		return None
 	finally:
 		if not s is None:
 			s.close()
@@ -386,8 +446,7 @@ def minecraft_ping_one_six(host, port):
 	def pack_string(s):
 		return struct.pack('>H', len(s)) + s.encode('utf-16be')
 	try:
-		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		s.connect((host, port))
+		s = make_ping_socket(host, port)
 		s.send(struct.pack('BBB', 0xfe, 0x01, 0xfa))
 		s.send(pack_string('MC|PingHost'))
 		s.send(struct.pack('>H', 7 + 2 * len(host)))
@@ -409,10 +468,6 @@ def minecraft_ping_one_six(host, port):
 			'current_players': response[4],
 			'max_players': response[5]
 		}
-	except Exception as e:
-		print('Caught exception in minecraft ping 1.6.')
-		traceback.print_exc()
-		return None
 	finally:
 		if not s is None:
 			s.close()
@@ -420,8 +475,7 @@ def minecraft_ping_one_six(host, port):
 
 def minecraft_ping_one_four(host, port):
 	try:
-		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		s.connect((host, port))
+		s = make_ping_socket(host, port)
 		s.send(struct.pack('BB', 0xfe, 0x01))
 		packet_id = struct.unpack('B', s.recv(1))[0]
 		if packet_id != 0xff:
@@ -437,10 +491,6 @@ def minecraft_ping_one_four(host, port):
 			'current_players': parts[4],
 			'max_players': parts[5]
 		}
-	except Exception as e:
-		print('Caught exception in minecraft ping 1.4.')
-		traceback.print_exc()
-		return None
 	finally:
 		if not s is None:
 			s.close()
@@ -448,8 +498,7 @@ def minecraft_ping_one_four(host, port):
 
 def minecraft_ping_beta_one_eight(host, port):
 	try:
-		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		s.connect((host, port))
+		s = make_ping_socket(host, port)
 		s.send(struct.pack('B', 0xfe))
 		fb = struct.unpack('B', s.recv(1))[0]
 		if fb != 0xff:
@@ -462,10 +511,6 @@ def minecraft_ping_beta_one_eight(host, port):
 			'current_players': parts[1],
 			'max_players': parts[2]
 		}
-	except Exception as e:
-		print('Caught exception in minecraft ping b1.8.')
-		traceback.print_exc()
-		return None
 	finally:
 		if not s is None:
 			s.close()
