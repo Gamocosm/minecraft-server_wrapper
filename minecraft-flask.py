@@ -403,25 +403,34 @@ def make_ping_socket(host, port):
 
 def minecraft_ping(host, port):
 	try:
-		try:
-			return minecraft_ping_one_seven(host, port)
-		except socket.timeout as e:
-			pass
-		try:
-			return minecraft_ping_one_six(host, port)
-		except socket.timeout as e:
-			pass
-		try:
-			return minecraft_ping_one_four(host, port)
-		except socket.timeout as e:
-			pass
-		try:
-			return minecraft_ping_beta_one_eight(host, port)
-		except socket.timeout as e:
-			pass
+		return minecraft_ping_one_seven(host, port)
+	except socket.timeout as e:
+		pass
 	except Exception as e:
-		print('Caught exception in minecraft ping.')
+		print('Caught exception in minecraft ping 1.7.')
 		traceback.print_exc()
+	try:
+		return minecraft_ping_one_six(host, port)
+	except socket.timeout as e:
+		pass
+	except Exception as e:
+		print('Caught exception in minecraft ping 1.6.')
+		traceback.print_exc()
+	try:
+		return minecraft_ping_one_four(host, port)
+	except socket.timeout as e:
+		pass
+	except Exception as e:
+		print('Caught exception in minecraft ping 1.4.')
+		traceback.print_exc()
+	try:
+		return minecraft_ping_beta_one_eight(host, port)
+	except socket.timeout as e:
+		pass
+	except Exception as e:
+		print('Caught exception in minecraft ping b1.8.')
+		traceback.print_exc()
+	print('No ping worked.')
 	return None
 
 def minecraft_ping_one_seven(host, port):
@@ -452,7 +461,7 @@ def minecraft_ping_one_six(host, port):
 		s.send(struct.pack('>H', 7 + 2 * len(host)))
 		s.send(struct.pack('B', 74))
 		s.send(pack_string(host))
-		s.send(struct.pack('>H', port))
+		s.send(struct.pack('>I', port))
 		fb = struct.unpack('B', s.recv(1))[0]
 		if fb != 0xff:
 			raise Exception('Minecraft 1.6 ping server responded with first byte {0}'.format(fb))
