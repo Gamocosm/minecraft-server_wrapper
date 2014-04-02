@@ -110,8 +110,12 @@ response: {
 @app.route('/pid')
 @requires_auth
 def minecraft_pid():
+	global mc_process
 	if mc_process is None:
-		return flask.jsonify(status=ERR_SERVER_NOT_RUNNING)
+		return flask.jsonify(status=0, pid=0)
+	if not mc_process.poll() is None:
+		mc_process = None
+		return flask.jsonify(status=0, pid=0)
 	return flask.jsonify(status=0, pid=mc_process.pid)
 
 '''
@@ -334,6 +338,26 @@ def update_wrapper():
 	with urllib.request.urlopen(url) as response, open(os.path.realpath(__file__), 'wb') as outfile:
 		shutil.copyfileobj(response, outfile)
 	return flask.jsonify(status=0)
+
+'''
+request: {
+	'signal': 'kill', # optional, defaults term
+}
+response: {
+}
+'''
+@app.route('/kill', methods=['POST'])
+@requires_auth
+def minecraft_kill():
+	if mc_process is None:
+		return flask.jsonify(status=0)
+	data = flask.request.get_json(force=True)
+	sig = data.get('signal', 'term')
+	if sig == 'term':
+		mc_process.terminate()
+	elif sig == 'kill':
+		mc_process.kill()
+	return flask.jsonify(status=ERR_INVALID_REQUEST)
 
 # Minecraft functions
 
