@@ -342,6 +342,7 @@ def update_wrapper():
 '''
 request: {
 	'signal': 'kill', # optional, defaults term
+	'all': false, # kill all java processes
 }
 response: {
 }
@@ -353,10 +354,21 @@ def minecraft_kill():
 		return flask.jsonify(status=0)
 	data = flask.request.get_json(force=True)
 	sig = data.get('signal', 'term')
-	if sig == 'term':
-		mc_process.terminate()
-	elif sig == 'kill':
-		mc_process.kill()
+	kill_all = data.get('all', False)
+	if kill_all:
+		if sig == 'term':
+			subprocess.call(['killall', 'java'])
+			return flask.jsonify(status=0)
+		elif sig == 'kill':
+			subprocess.call(['killall', '-s', 'KILL', 'java'])
+			return flask.jsonify(status=0)
+	else:
+		if sig == 'term':
+			mc_process.terminate()
+			return flask.jsonify(status=0)
+		elif sig == 'kill':
+			mc_process.kill()
+			return flask.jsonify(status=0)
 	return flask.jsonify(status=ERR_INVALID_REQUEST)
 
 # Minecraft functions
