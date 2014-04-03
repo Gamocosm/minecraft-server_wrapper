@@ -15,6 +15,10 @@ import functools
 import traceback
 import logging
 import urllib.request
+import zipfile
+import distutils.version
+
+VERSION = distutils.version.StrictVersion('0.3.0')
 
 app = flask.Flask(__name__)
 mc_process = None
@@ -253,9 +257,9 @@ def minecraft_backup():
 	for f in fields:
 		if not f in data:
 			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-	targz_name = minecraft_targz_world()
+	zip_name = minecraft_zip_world()
 	minecraft_trim_old_backups()
-	curl_command.extend(['-F', 'key=' + data['key'], '-F', 'AWSAccessKeyId=' + data['access_key_id'], '-F', 'Policy=' + data['policy'], '-F', 'Signature=' + data['signature'], '-F', 'file=@' + targz_name])
+	curl_command.extend(['-F', 'key=' + data['key'], '-F', 'AWSAccessKeyId=' + data['access_key_id'], '-F', 'Policy=' + data['policy'], '-F', 'Signature=' + data['signature'], '-F', 'file=@' + zip_name])
 	curl_command.append(data['url'])
 	retcode = subprocess.call(curl_command)
 	return flask.jsonify(status=0, retcode=retcode)
@@ -325,7 +329,8 @@ def computer_password():
 
 '''
 request: {
-	'url': string (optional)
+	'url': string, # (optional)
+	'min_version': string, # (optional)
 }
 response: {
 }
@@ -335,8 +340,10 @@ response: {
 def update_wrapper():
 	data = flask.request.get_json(force=True)
 	url = data.get('url', 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/master/minecraft-flask.py')
-	with urllib.request.urlopen(url) as response, open(os.path.realpath(__file__), 'wb') as outfile:
-		shutil.copyfileobj(response, outfile)
+	min_version = data.get('min_version')
+	if min_version is None or VERSION < distutils.version.StrictVersion(min_version):
+		with urllib.request.urlopen(url) as response, open(os.path.realpath(__file__), 'wb') as outfile:
+			shutil.copyfileobj(response, outfile)
 	return flask.jsonify(status=0)
 
 '''
@@ -620,6 +627,29 @@ def minecraft_trim_old_backups():
 	for i in range(10, len(backups)):
 		os.remove('backups/' + backups[i - 10])
 
+def minecraft_zip_world():
+	if os.path.isfile('backups'):
+		os.remove('backups')
+	if not os.path.exists('backups'):
+		os.makedirs('backups')
+	zip_name = 'backups/minecraft-world_backup-' + str(datetime.datetime.today()).replace('-', '_').replace(' ', '-').replace(':', '_').replace('.', '-') + '.zip'
+	world_name = minecraft_read_server_properties('server.properties').get('level-name')
+	if world_name is None or not (os.path.exists(world_name) and os.path.isdir(world_name)):
+		raise RuntimeError('World name not found.')
+	if os.path.exists(zip_name):
+		if os.path.isfile(zip_name):
+			os.remove(zip_name)
+		else:
+			shutil.rmtree(zip_name)
+	z = zipfile.ZipFile(zip_name, 'w')
+	zip_directory(world_name, z)
+	return zip_name
+
+def zip_directory(path, z):
+	for root, dirs, files in os.walk(path):
+		for f in files:
+			z.write(os.path.join(root, f))
+
 # Main
 
 def main():
@@ -627,7 +657,7 @@ def main():
 		signal.signal(sig, signal_handler)
 	handler = logging.StreamHandler()
 	app.logger.addHandler(handler)
-	app.run(host='0.0.0.0')
+	app.run(host='0.0.0.0', use_reloader=True)
 
 if __name__ == '__main__':
 	main()
