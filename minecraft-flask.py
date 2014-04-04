@@ -342,8 +342,10 @@ def update_wrapper():
 	url = data.get('url', 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/master/minecraft-flask.py')
 	min_version = data.get('min_version')
 	if min_version is None or VERSION < distutils.version.StrictVersion(min_version):
-		with urllib.request.urlopen(url) as response, open(os.path.realpath(__file__), 'wb') as outfile:
-			shutil.copyfileobj(response, outfile)
+		tmp = tempfile.NamedTemporaryFile(delete=False)
+		with urllib.request.urlopen(url) as response:
+			shutil.copyfileobj(response, tmp)
+		os.rename(tmp.name, os.path.realpath(__file__))
 	return flask.jsonify(status=0)
 
 '''
