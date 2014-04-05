@@ -80,7 +80,7 @@ response: {
 @requires_auth
 def minecraft_start():
 	global mc_process
-	if mc_process is None:
+	if not minecraft_is_running():
 		data = flask.request.get_json(force=True)
 		ram = data.get('ram')
 		if ram is None:
@@ -100,7 +100,7 @@ response: {
 @app.route('/stop')
 @requires_auth
 def minecraft_stop():
-	if mc_process is None:
+	if not minecraft_is_running():
 		return flask.jsonify(status=0, retcode=0)
 	return flask.jsonify(status=0, retcode=mc_shutdown())
 
@@ -114,11 +114,7 @@ response: {
 @app.route('/pid')
 @requires_auth
 def minecraft_pid():
-	global mc_process
-	if mc_process is None:
-		return flask.jsonify(status=0, pid=0)
-	if not mc_process.poll() is None:
-		mc_process = None
+	if not minecraft_is_running():
 		return flask.jsonify(status=0, pid=0)
 	return flask.jsonify(status=0, pid=mc_process.pid)
 
@@ -132,7 +128,7 @@ response: {
 @app.route('/exec', methods=['POST'])
 @requires_auth
 def minecraft_exec():
-	if mc_process is None:
+	if not minecraft_is_running():
 		return response_set_http_code(flask.jsonify(status=ERR_SERVER_NOT_RUNNING), 400)
 	data = flask.request.get_json(force=True)
 	if not isinstance(data.get('command'), list):
@@ -161,7 +157,7 @@ response: {
 @app.route('/query')
 @requires_auth
 def minecraft_query():
-	if mc_process is None:
+	if not minecraft_is_running():
 		return flask.jsonify(status=0, running=False)
 	data = minecraft_ping('localhost', 25565)
 	if data is None:
@@ -179,7 +175,7 @@ response: {
 @app.route('/broadcast', methods=['POST'])
 @requires_auth
 def minceraft_broadcast():
-	if mc_process is None:
+	if not minecraft_is_running():
 		return response_set_http_code(flask.jsonify(status=ERR_SERVER_NOT_RUNNING), 400)
 	data = flask.request.get_json(force=True)
 	if not 'message' in data:
@@ -210,7 +206,7 @@ def minecraft_server_properties():
 			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 		properties = MinecraftProperties('server.properties')
 		properties.update_properties(data['properties'])
-	properties = minecraft_read_server_properties('server.properties')
+	properties = minecraft_read_server_properties()
 	return flask.jsonify(status=0, properties=properties)
 
 '''
@@ -231,7 +227,7 @@ def minecraft_whitelist():
 		if not isinstance(data.get('players'), list):
 			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
 		minecraft_update_whitelist('white-list.txt', data['players'])
-	players = minecraft_read_whitelist('white-list.txt')
+	players = minecraft_read_whitelist()
 	return flask.jsonify(status=0, players=players)
 
 '''
@@ -249,7 +245,7 @@ response: {
 @app.route('/backup', methods=['POST'])
 @requires_auth
 def minecraft_backup():
-	if not mc_process is None:
+	if minecraft_is_running():
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
 	data = flask.request.get_json(force=True)
 	fields = ['key', 'access_key_id', 'policy', 'signature', 'url']
@@ -295,7 +291,7 @@ response: {
 @app.route('/select_version', methods=['POST'])
 @requires_auth
 def minecraft_select_version():
-	if not mc_process is None:
+	if minecraft_is_running():
 		return response_set_http_code(flask.jsonify(status=ERR_SERVER_RUNNING), 400)
 	data = flask.request.get_json(force=True)
 	if not 'version' in data:
@@ -338,6 +334,8 @@ response: {
 @app.route('/update_wrapper', methods=['POST'])
 @requires_auth
 def update_wrapper():
+	if minecraft_is_running():
+		return flask.jsonify(status=ERR_SERVER_RUNNING)
 	data = flask.request.get_json(force=True)
 	url = data.get('url', 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/master/minecraft-flask.py')
 	min_version = data.get('min_version')
@@ -359,7 +357,7 @@ response: {
 @app.route('/kill', methods=['POST'])
 @requires_auth
 def minecraft_kill():
-	if mc_process is None:
+	if not minecraft_is_running():
 		return flask.jsonify(status=0)
 	data = flask.request.get_json(force=True)
 	sig = data.get('signal', 'term')
@@ -380,12 +378,57 @@ def minecraft_kill():
 			return flask.jsonify(status=0)
 	return flask.jsonify(status=ERR_INVALID_REQUEST)
 
+'''
+request: {
+}
+response: {
+}
+'''
+@app.route('/upload_world', methods=['POST'])
+@requires_auth
+def minecraft_upload_world():
+	if minecraft_is_running():
+		return flask.jsonify(status=ERR_SERVER_RUNNING)
+	return flask.jsonify(status=0)
+
+'''
+request: {
+}
+response: {
+}
+'''
+@app.route('/upload_jar', methods=['POST'])
+@requires_auth
+def minecraft_upload_jar():
+	if minecraft_is_running():
+		return flask.jsonify(status=ERR_SERVER_RUNNING)
+	return flask.jsonify(status=0)
+
+'''
+request: {
+}
+response: {
+}
+'''
+@app.route('/download_world')
+@requires_auth
+def minecraft_download_world():
+	if minecraft_is_running():
+		return flask.jsonify(status=ERR_SERVER_RUNNING)
+	zip_name = minecraft_zip_world()
+	def generate():
+		with open(zip_name) as f:
+			yield data.read(4 * 1024)
+	response = flask.Response(generate(), mimetype='application/zip')
+	response.headers['Content-Disposition'] = 'attachment; filename=world.zip';
+	return response
+
 # Minecraft functions
 
 def mc_shutdown():
 	global mc_process
-	if mc_process is None:
-		return None
+	if not minecraft_is_running():
+		return
 	mc_process.stdin.write('stop\n')
 	retcode = mc_process.wait()
 	mc_process = None
@@ -607,7 +650,7 @@ def minecraft_targz_world():
 	if not os.path.exists('backups'):
 		os.makedirs('backups')
 	targz_name = 'backups/minecraft-world_backup-' + str(datetime.datetime.today()).replace('-', '_').replace(' ', '-').replace(':', '_').replace('.', '-') + '.tar.gz'
-	world_name = minecraft_read_server_properties('server.properties').get('level-name')
+	world_name = minecraft_world_name()
 	if world_name is None or not (os.path.exists(world_name) and os.path.isdir(world_name)):
 		raise RuntimeError('World name not found.')
 	if os.path.exists(targz_name):
@@ -629,13 +672,16 @@ def minecraft_trim_old_backups():
 	for i in range(10, len(backups)):
 		os.remove('backups/' + backups[i - 10])
 
+def minecraft_world_name():
+	return minecraft_read_server_properties('server.properties').get('level-name')
+
 def minecraft_zip_world():
 	if os.path.isfile('backups'):
 		os.remove('backups')
 	if not os.path.exists('backups'):
 		os.makedirs('backups')
 	zip_name = 'backups/minecraft-world_backup-' + str(datetime.datetime.today()).replace('-', '_').replace(' ', '-').replace(':', '_').replace('.', '-') + '.zip'
-	world_name = minecraft_read_server_properties('server.properties').get('level-name')
+	world_name = minecraft_world_name()
 	if world_name is None or not (os.path.exists(world_name) and os.path.isdir(world_name)):
 		raise RuntimeError('World name not found.')
 	if os.path.exists(zip_name):
@@ -651,6 +697,15 @@ def zip_directory(path, z):
 	for root, dirs, files in os.walk(path):
 		for f in files:
 			z.write(os.path.join(root, f))
+	
+def minecraft_is_running():
+	global mc_process
+	if mc_process is None:
+		return False
+	if not mc_process.poll() is None:
+		mc_process = None
+		return False
+	return True
 
 # Main
 
