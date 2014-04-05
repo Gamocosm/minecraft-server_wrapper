@@ -31,6 +31,8 @@ def signal_handler(signum=None, frame=None):
 
 def subprocess_preexec_handler():
 	os.setpgrp()
+	os.setuid(mcuser_id().uid)
+	os.setgid(mcuser_id().gid)
 
 # Helpers
 def response_set_http_code(res, code):
@@ -389,6 +391,11 @@ response: {
 def minecraft_upload_world():
 	if minecraft_is_running():
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
+	# download world
+	# change user
+	shutil.rmtree(minecraft_world_name())
+	shutil.rmtree(minecraft_world_name() + '_nether')
+	shutil.rmtree(minecraft_world_name() + '_the_end')
 	return flask.jsonify(status=0)
 
 '''
@@ -402,6 +409,9 @@ response: {
 def minecraft_upload_jar():
 	if minecraft_is_running():
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
+	# download file (directly to file?)
+	# change user
+	os.remove('minecraft_server-run.jar')
 	return flask.jsonify(status=0)
 
 '''
@@ -452,6 +462,7 @@ class MinecraftProperties:
 			tmp.close()
 			os.remove(self.f)
 			shutil.move(tmp.name, self.f)
+			chown_mcuser(self.f)
 		finally:
 			try:
 				os.remove(tmp.name)
@@ -613,10 +624,10 @@ def minecraft_ping_beta_one_eight(host, port):
 			s.close()
 	return None
 
-def minecraft_read_server_properties(path):
+def minecraft_read_server_properties():
 	properties = {}
 	try:
-		with open(path) as f:
+		with open('server.properties') as f:
 			for line in f:
 				if '=' in line:
 					keyval = line.split('=')
@@ -625,10 +636,10 @@ def minecraft_read_server_properties(path):
 		pass
 	return properties
 
-def minecraft_read_whitelist(path):
+def minecraft_read_whitelist():
 	players = []
 	try:
-		with open(path) as f:
+		with open('white-list.txt') as f:
 			for line in f:
 				if len(line.strip()) > 0:
 					players.append(line.strip())
@@ -636,31 +647,13 @@ def minecraft_read_whitelist(path):
 		pass
 	return players
 
-def minecraft_update_whitelist(path, players):
+def minecraft_update_whitelist(players):
 	try:
-		with open(path, 'w') as f:
+		with open('white-list.txt', 'w') as f:
 			for each in players:
 				f.write(each + '\n')
 	except IOError:
 		pass
-
-def minecraft_targz_world():
-	if os.path.isfile('backups'):
-		os.remove('backups')
-	if not os.path.exists('backups'):
-		os.makedirs('backups')
-	targz_name = 'backups/minecraft-world_backup-' + str(datetime.datetime.today()).replace('-', '_').replace(' ', '-').replace(':', '_').replace('.', '-') + '.tar.gz'
-	world_name = minecraft_world_name()
-	if world_name is None or not (os.path.exists(world_name) and os.path.isdir(world_name)):
-		raise RuntimeError('World name not found.')
-	if os.path.exists(targz_name):
-		if os.path.isfile(targz_name):
-			os.remove(targz_name)
-		else:
-			shutil.rmtree(targz_name)
-	with tarfile.open(targz_name, 'w:gz') as tar:
-		tar.add(world_name, arcname='world')
-	return targz_name
 
 def minecraft_trim_old_backups():
 	if os.path.isfile('backups'):
@@ -691,6 +684,7 @@ def minecraft_zip_world():
 			shutil.rmtree(zip_name)
 	z = zipfile.ZipFile(zip_name, 'w')
 	zip_directory(world_name, z)
+	chown_mcuser(zip_name)
 	return zip_name
 
 def zip_directory(path, z):
@@ -706,6 +700,22 @@ def minecraft_is_running():
 		mc_process = None
 		return False
 	return True
+
+def mcuser_id():
+	return pwd.getpwnam('mcuser')
+
+def chown_mcuser(path):
+	chown_recursive(path, mcuser_id().pw_uid, mcuser_id().pw_gid)
+
+def chown_recursive(path, uid, gid):
+	if os.path.isfile(path):
+		os.chown(path, uid, gid)
+	else:
+		for root, dirs, files in os.walk(path):
+			for f in files:
+				os.chown(os.path.join(root, f), uid, gid)
+			for d in dirs:
+				chown_recursive(os.path.join(root, d), uid, gid)
 
 # Main
 
