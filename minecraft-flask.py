@@ -17,6 +17,7 @@ import logging
 import urllib.request
 import zipfile
 import distutils.version
+import pwd
 
 VERSION = distutils.version.StrictVersion('0.3.0')
 
@@ -31,8 +32,8 @@ def signal_handler(signum=None, frame=None):
 
 def subprocess_preexec_handler():
 	os.setpgrp()
-	os.setuid(mcuser_id().uid)
-	os.setgid(mcuser_id().gid)
+	os.setgid(mcuser_id().pw_gid)
+	os.setuid(mcuser_id().pw_uid)
 
 # Helpers
 def response_set_http_code(res, code):
@@ -228,7 +229,7 @@ def minecraft_whitelist():
 		data = flask.request.get_json(force=True)
 		if not isinstance(data.get('players'), list):
 			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-		minecraft_update_whitelist('white-list.txt', data['players'])
+		minecraft_update_whitelist(data['players'])
 	players = minecraft_read_whitelist()
 	return flask.jsonify(status=0, players=players)
 
@@ -342,10 +343,7 @@ def update_wrapper():
 	url = data.get('url', 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/master/minecraft-flask.py')
 	min_version = data.get('min_version')
 	if min_version is None or VERSION < distutils.version.StrictVersion(min_version):
-		tmp = tempfile.NamedTemporaryFile(delete=False)
-		with urllib.request.urlopen(url) as response:
-			shutil.copyfileobj(response, tmp)
-		os.rename(tmp.name, os.path.realpath(__file__))
+		download_file(url, __file__)
 	return flask.jsonify(status=0)
 
 '''
@@ -382,6 +380,7 @@ def minecraft_kill():
 
 '''
 request: {
+	"url": string
 }
 response: {
 }
@@ -391,15 +390,31 @@ response: {
 def minecraft_upload_world():
 	if minecraft_is_running():
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
-	# download world
-	# change user
-	shutil.rmtree(minecraft_world_name())
-	shutil.rmtree(minecraft_world_name() + '_nether')
-	shutil.rmtree(minecraft_world_name() + '_the_end')
+	data = flask.request.get_json(force=True)
+	if not 'url' in data:
+		return flask.jsonify(status=ERR_INVALID_REQUEST)
+	rm_silent('tmp')
+	mkdir_silent('tmp')
+	download_file(data['url'], 'tmp/world.zip')
+	zip_extract('tmp/world.zip', 'tmp')
+	world_name = minecraft_world_name()
+	world_name_nether = world_name + '_nether'
+	world_name_the_end = world_name + '_the_end'
+	shutil.rmtree(world_name)
+	if os.path.exists(world_name_nether):
+		shutil.rmtree(world_name_nether)
+	if os.path.exists(world_name_the_end):
+		shutil.rmtree(world_name_the_end)
+	shutil.copytree('tmp/' + world_name, world_name)
+	if os.path.exists('tmp/' + world_name_nether):
+		shutil.copytree('tmp/' + world_name, world_name_nether)
+	if os.path.exists('tmp/' + world_name_the_end):
+		shutil.copytree('tmp/' + world_name, world_name_the_end)
 	return flask.jsonify(status=0)
 
 '''
 request: {
+	"url": string
 }
 response: {
 }
@@ -409,9 +424,11 @@ response: {
 def minecraft_upload_jar():
 	if minecraft_is_running():
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
-	# download file (directly to file?)
-	# change user
-	os.remove('minecraft_server-run.jar')
+	data = flask.request.get_json(force=True)
+	if not 'url' in data:
+		return flask.jsonify(status=ERR_INVALID_REQUEST)
+	download_file(data['url'], 'minecraft_server-run.jar')
+	chown_mcuser('minecraft_server-run.jar')
 	return flask.jsonify(status=0)
 
 '''
@@ -428,7 +445,7 @@ def minecraft_download_world():
 	zip_name = minecraft_zip_world()
 	def generate():
 		with open(zip_name) as f:
-			yield data.read(4 * 1024)
+			yield f.read(4 * 1024)
 	response = flask.Response(generate(), mimetype='application/zip')
 	response.headers['Content-Disposition'] = 'attachment; filename=world.zip';
 	return response
@@ -656,17 +673,14 @@ def minecraft_update_whitelist(players):
 		pass
 
 def minecraft_trim_old_backups():
-	if os.path.isfile('backups'):
-		os.remove('backups')
-	if not os.path.exists('backups'):
-		os.makedirs('backups')
+	mkdir_silent('backups')
 	backups = [f for f in os.listdir('backups') if f.endswith('.tar.gz')]
 	backups.sort()
 	for i in range(10, len(backups)):
 		os.remove('backups/' + backups[i - 10])
 
 def minecraft_world_name():
-	return minecraft_read_server_properties('server.properties').get('level-name')
+	return minecraft_read_server_properties().get('level-name')
 
 def minecraft_zip_world():
 	if os.path.isfile('backups'):
@@ -716,6 +730,43 @@ def chown_recursive(path, uid, gid):
 				os.chown(os.path.join(root, f), uid, gid)
 			for d in dirs:
 				chown_recursive(os.path.join(root, d), uid, gid)
+
+def download_file(url, path):
+	tmp = tempfile.NamedTemporaryFile(delete=False)
+	with urllib.request.urlopen(url) as response:
+		shutil.copyfileobj(response, tmp)
+	if path is None:
+		return tmp.name
+	path = os.path.realpath(path)
+	os.rename(tmp.name, path)
+	return path
+
+def mkdir_silent(path):
+	if os.path.isfile(path):
+		os.remove(path)
+	if not os.path.exists(path):
+		os.makedirs(path)
+
+def rm_silent(path):
+	if not os.path.exists(path):
+		return
+	if os.path.isfile(path):
+		os.remove(path)
+	else:
+		shutil.rmtree(path)
+
+def zip_extract(zip_name, dest_dir):
+	dest_dir = os.path.realpath(dest_dir)
+	with zipfile.ZipFile(zip_name) as zf:
+		for member in zf.infolist():
+			path = dest_dir
+			words = member.filename.split('/')
+			for w in words:
+				if w in (os.curdir, os.pardir, ''):
+					continue
+				path = os.path.join(path, w)
+			zf.extract(member, path)
+
 
 # Main
 
