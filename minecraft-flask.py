@@ -23,6 +23,8 @@ VERSION = distutils.version.StrictVersion('0.3.0')
 
 app = flask.Flask(__name__)
 mc_process = None
+username = None
+password = None
 
 # Handlers
 
@@ -41,8 +43,8 @@ def response_set_http_code(res, code):
 	return res
 
 # Helpers
-def response_check_auth(username, password):
-	return username == os.environ.get('MINECRAFT_FLASK_USERNAME') and password == os.environ.get('MINECRAFT_FLASK_PASSWORD')
+def response_check_auth(u, p):
+	return username == u and password == p
 
 def response_authenticate():
 	return response_set_http_code(flask.jsonify(status=ERR_NO_AUTH), 400)
