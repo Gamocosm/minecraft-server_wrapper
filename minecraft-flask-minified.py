@@ -275,11 +275,42 @@ def mc_shutdown():
 	return retcode
 
 class MinecraftProperties:
+	WHITELISTED_PROPERTIES = {
+		'allow-flight'
+		, 'allow-nether'
+		, 'announce-player-achievements'
+		, 'difficulty'
+		, 'enable-command-block'
+		, 'force-gamemode'
+		, 'gamemode'
+		, 'generate-structures'
+		, 'generator-settings'
+		, 'hardcore'
+		, 'level-name'
+		, 'level-seed'
+		, 'level-type'
+		, 'max-build-height'
+		, 'max-players'
+		, 'motd'
+		, 'online-mode'
+		, 'op-permission-level'
+		, 'player-idle-timeout'
+		, 'pvp'
+		, 'resource-pack'
+		, 'server-name'
+		, 'snooper-enabled'
+		, 'spawn-animals'
+		, 'spawn-monsters'
+		, 'spwan-npcs'
+		, 'view-distance'
+		, 'white-list'
+	}
 	def __init__(self, f):
 		self.f = f
 
 	def update_properties(self, keyvals):
 		tmp = tempfile.NamedTemporaryFile(delete=False)
+		keyvals = keyvals.copy()
 		try:
 			with open(self.f) as src:
 				for line in src:
@@ -287,8 +318,12 @@ class MinecraftProperties:
 						k = line.split('=')[0]
 						if k in keyvals:
 							tmp.write(bytes(k + '=' + keyvals[k] + '\n', 'utf8'))
+							del(keyvals[k])
 							continue
 					tmp.write(bytes(line, 'utf8'))
+				for k in keyvals:
+					if k in MinecraftProperties.WHITELISTED_PROPERTIES:
+						tmp.write(bytes(k + '=' + keyvals[k] + '\n', 'utf8'))
 			tmp.close()
 			os.remove(self.f)
 			shutil.move(tmp.name, self.f)
