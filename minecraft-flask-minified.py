@@ -43,9 +43,9 @@ def response_set_http_code(res, code):
 def response_check_auth(u, p):
 	with open(version_file) as f:
 		content = f.readlines()
-	if len(f) < 2:
+	if len(content) < 2:
 		return False;
-	return content[0] == u and content[1] == p
+	return content[0].strip() == u and content[1].strip() == p
 
 def response_authenticate():
 	return response_set_http_code(flask.jsonify(status=ERR_NO_AUTH), 400)
@@ -138,7 +138,7 @@ response: {
 	}
 }
 '''
-@app.route('/server_properties', methods=['GET', 'POST'])
+@app.route('/minecraft_properties', methods=['GET', 'POST'])
 @requires_auth
 def minecraft_server_properties():
 	if flask.request.method == 'POST':
@@ -301,7 +301,8 @@ class MinecraftProperties:
 		, 'snooper-enabled'
 		, 'spawn-animals'
 		, 'spawn-monsters'
-		, 'spwan-npcs'
+		, 'spawn-npcs'
+		, 'spawn-protection'
 		, 'view-distance'
 		, 'white-list'
 	}
@@ -321,9 +322,9 @@ class MinecraftProperties:
 							del(keyvals[k])
 							continue
 					tmp.write(bytes(line, 'utf8'))
-				for k in keyvals:
-					if k in MinecraftProperties.WHITELISTED_PROPERTIES:
-						tmp.write(bytes(k + '=' + keyvals[k] + '\n', 'utf8'))
+			for k in keyvals:
+				if k in MinecraftProperties.WHITELISTED_PROPERTIES:
+					tmp.write(bytes(k + '=' + keyvals[k] + '\n', 'utf8'))
 			tmp.close()
 			os.remove(self.f)
 			shutil.move(tmp.name, self.f)
@@ -375,7 +376,7 @@ def minecraft_read_ops():
 		pass
 	return players
 
-def minecraft_update_whitelist(players):
+def minecraft_update_ops(players):
 	try:
 		with open('ops.txt', 'w') as f:
 			for each in players:
@@ -453,7 +454,7 @@ def rm_silent(path):
 
 def main():
 	global version_file
-	version_file = sys.argv[0]
+	version_file = sys.argv[1]
 	for sig in [signal.SIGTERM, signal.SIGINT]:
 		signal.signal(sig, signal_handler)
 	handler = logging.StreamHandler()
