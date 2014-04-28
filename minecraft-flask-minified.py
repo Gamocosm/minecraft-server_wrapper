@@ -18,8 +18,10 @@ import urllib.request
 import zipfile
 import distutils.version
 import pwd
+import time
 
 VERSION = distutils.version.StrictVersion('0.3.0')
+SOURCE_URL = 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/master/minecraft-flask-minified.py'
 
 app = flask.Flask(__name__)
 mc_process = None
@@ -48,7 +50,9 @@ def response_check_auth(u, p):
 	return content[0].strip() == u and content[1].strip() == p
 
 def response_authenticate():
-	return response_set_http_code(flask.jsonify(status=ERR_NO_AUTH), 400)
+	res = response_set_http_code(flask.jsonify(status=ERR_NO_AUTH), 401)
+	res.headers.add('WWW-Authenticate', 'Basic realm="Login Required"')
+	return res
 
 def requires_auth(f):
 	@functools.wraps(f)
@@ -238,7 +242,7 @@ def update_wrapper():
 	if minecraft_is_running():
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
 	data = flask.request.get_json(force=True)
-	url = data.get('url', 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/master/minecraft-flask.py')
+	url = data.get('url', SOURCE_URL)
 	min_version = data.get('min_version')
 	if min_version is None or VERSION < distutils.version.StrictVersion(min_version):
 		download_file(url, __file__)
@@ -255,13 +259,8 @@ response: {
 def minecraft_download_world():
 	if minecraft_is_running():
 		return flask.jsonify(status=ERR_SERVER_RUNNING)
-	zip_name = minecraft_zip_world()
-	def generate():
-		with open(zip_name) as f:
-			yield f.read(4 * 1024)
-	response = flask.Response(generate(), mimetype='application/zip')
-	response.headers['Content-Disposition'] = 'attachment; filename=world.zip';
-	return response
+	zip_name = os.path.realpath(minecraft_zip_world())
+	return flask.send_file(zip_name, mimetype='application/zip', as_attachment=True, attachment_filename='minecraft-world-' + time.strftime('%Y_%b_%d').lower() + '.zip')
 
 # Minecraft functions
 
