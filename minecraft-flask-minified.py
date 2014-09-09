@@ -25,7 +25,7 @@ SOURCE_URL = 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/
 
 app = flask.Flask(__name__)
 mc_process = None
-version_file = None
+auth_file = None
 
 # Handlers
 
@@ -43,7 +43,7 @@ def response_set_http_code(res, code):
 
 # Helpers
 def response_check_auth(u, p):
-	with open(version_file) as f:
+	with open(auth_file) as f:
 		content = f.readlines()
 	if len(content) < 2:
 		return False;
@@ -129,6 +129,25 @@ def minecraft_pid():
 	return flask.jsonify(status=0, pid=mc_process.pid)
 
 '''
+request: {
+	command: "string"
+}
+response: {
+}
+'''
+@app.route('/exec', methods=['POST'])
+@requires_auth
+def minecraft_exec():
+	if not minecraft_is_running():
+		return response_set_http_code(flask.jsonify(status=ERR_SERVER_NOT_RUNNING), 400)
+	data = flask.request.get_json(force=True)
+	command = data.get('command')
+	if command is None:
+		return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
+	mc_process.stdin.write(command + '\n')
+	return flask.jsonify(status=0)
+
+'''
 - properties only mandatory for POST
 - returns new/current properties
 request: {
@@ -155,46 +174,6 @@ def minecraft_server_properties():
 	return flask.jsonify(status=0, properties=properties)
 
 '''
-- players only mandatory for POST
-- returns new/current whitelisted players
-request: {
-	players: ['a', 'b', 'c']
-}
-response: {
-	players: ['a', 'b', 'c']
-}
-'''
-@app.route('/whitelist', methods=['GET', 'POST'])
-@requires_auth
-def minecraft_whitelist():
-	if flask.request.method == 'POST':
-		data = flask.request.get_json(force=True)
-		if not isinstance(data.get('players'), list):
-			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-		minecraft_update_whitelist(data['players'])
-	players = minecraft_read_whitelist()
-	return flask.jsonify(status=0, players=players)
-
-'''
-request: {
-	players: ['a', 'b', 'c']
-}
-response: {
-	players: ['a', 'b', 'c']
-}
-'''
-@app.route('/ops', methods=['GET', 'POST'])
-@requires_auth
-def minecraft_ops():
-	if flask.request.method == 'POST':
-		data = flask.request.get_json(force=True)
-		if not isinstance(data.get('players'), list):
-			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-		minecraft_update_ops(data['players'])
-	players = minecraft_read_ops()
-	return flask.jsonify(status=0, players=players)
-
-'''
 request: {
 }
 response: {
@@ -208,25 +187,6 @@ def minecraft_backup():
 	zip_name = minecraft_zip_world()
 	minecraft_trim_old_backups()
 	return flask.jsonify(status=0)
-
-'''
-request: {
-}
-response: {
-	version: 1.2.3,
-	status: 0
-}
-'''
-@app.route('/version')
-@requires_auth
-def minecraft_image_version():
-	if version_file is None:
-		return flask.jsonify(status=0, version="0")
-	try:
-		with open(version_file) as f:
-			return flask.jsonify(status=0, version=f.readline().strip())
-	except IOError:
-		return response_set_http_code(flask.jsonify(status=ERR_OTHER), 500)
 
 '''
 request: {
@@ -268,8 +228,16 @@ def mc_shutdown():
 	global mc_process
 	if not minecraft_is_running():
 		return
+	retcode = -1
 	mc_process.stdin.write('stop\n')
-	retcode = mc_process.wait()
+	try:
+		retcode = mc_process.wait(4)
+	except subprocess.TimeoutExpired:
+		mc_process.terminate()
+		try:
+			retcode = mc_process.wait(4)
+		except subprocess.TimeoutExpired:
+			mc_process.kill()
 	mc_process = None
 	return retcode
 
@@ -345,44 +313,6 @@ def minecraft_read_server_properties():
 		pass
 	return properties
 
-def minecraft_read_whitelist():
-	players = []
-	try:
-		with open('white-list.txt') as f:
-			for line in f:
-				if len(line.strip()) > 0:
-					players.append(line.strip())
-	except IOError:
-		pass
-	return players
-
-def minecraft_update_whitelist(players):
-	try:
-		with open('white-list.txt', 'w') as f:
-			for each in players:
-				f.write(each + '\n')
-	except IOError:
-		pass
-
-def minecraft_read_ops():
-	players = []
-	try:
-		with open('ops.txt') as f:
-			for line in f:
-				if len(line.strip()) > 0:
-					players.append(line.strip())
-	except IOError:
-		pass
-	return players
-
-def minecraft_update_ops(players):
-	try:
-		with open('ops.txt', 'w') as f:
-			for each in players:
-				f.write(each + '\n')
-	except IOError:
-		pass
-
 def minecraft_trim_old_backups():
 	mkdir_silent('backups')
 	backups = [f for f in os.listdir('backups') if f.endswith('.zip')]
@@ -452,8 +382,8 @@ def rm_silent(path):
 # Main
 
 def main():
-	global version_file
-	version_file = sys.argv[1]
+	global auth_file
+	auth_file = sys.argv[1]
 	for sig in [signal.SIGTERM, signal.SIGINT]:
 		signal.signal(sig, signal_handler)
 	handler = logging.StreamHandler()
