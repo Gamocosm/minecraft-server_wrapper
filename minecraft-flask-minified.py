@@ -356,13 +356,11 @@ def minecraft_is_running():
 	return True
 
 def download_file(url, path):
-	tmp = tempfile.NamedTemporaryFile(delete=False)
-	with urllib.request.urlopen(url) as response:
-		shutil.copyfileobj(response, tmp)
-	if path is None:
-		return tmp.name
 	path = os.path.realpath(path)
-	os.rename(tmp.name, path)
+	with open(path + '.tmp', 'wb') as tmp:
+		with urllib.request.urlopen(url) as response:
+			shutil.copyfileobj(response, tmp)
+		os.rename(tmp.name, path)
 	return path
 
 def mkdir_silent(path):
