@@ -707,7 +707,7 @@ def zip_directory(path, z):
 	for root, dirs, files in os.walk(path):
 		for f in files:
 			z.write(os.path.join(root, f))
-	
+
 def minecraft_is_running():
 	global mc_process
 	if mc_process is None:
