@@ -21,7 +21,7 @@ import pwd
 import time
 
 VERSION = distutils.version.StrictVersion('0.3.0')
-SOURCE_URL = 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/master/minecraft-flask-minified.py'
+SOURCE_URL = 'https://raw.githubusercontent.com/Gamocosm/minecraft-server_wrapper/master/minecraft-server_wrapper.py'
 
 app = flask.Flask(__name__)
 mc_process = None
