@@ -26,6 +26,8 @@ SOURCE_URL = 'https://raw.githubusercontent.com/Raekye/minecraft-server_wrapper/
 app = flask.Flask(__name__)
 mc_process = None
 auth_file = None
+minecraft_stdout = None
+minecraft_stderr = None
 
 # Handlers
 
@@ -100,6 +102,8 @@ response: {
 @requires_auth
 def minecraft_start():
 	global mc_process
+	global minecraft_stdout
+	global minecraft_stderr
 	if not minecraft_is_running():
 		data = flask.request.get_json(force=True)
 		ram = data.get('ram')
@@ -113,7 +117,23 @@ def minecraft_start():
 				shell = True
 			else:
 				return response_set_http_code(flask.jsonify(status=ERR_NO_MINECRAFT), 500)
-		mc_process = subprocess.Popen(cmd, stdout=None, stdin=subprocess.PIPE, stderr=None, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=shell)
+		try:
+			if not minecraft_stdout is None:
+				minecraft_stdout.close()
+		except OSError:
+			app.logger.exception('Error closing Minecraft stdout file')
+		try:
+			if not minecraft_stdout is None:
+				minecraft_stderr.close()
+		except OSError:
+			app.logger.exception('Error closing Minecraft stderr file')
+		try:
+			minecraft_stdout = open('minecraft-stdout.log', 'a')
+			minecraft_stderr = open('minecraft-stderr.log', 'a')
+		except OSError:
+			app.logger.exception('Error opening Minecraft stdout and stderr files')
+			return response_set_http_code(flask.jsonify(status=ERR_OTHER), 500)
+		mc_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=minecraft_stdout, stderr=minecraft_stderr, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=shell)
 	return flask.jsonify(status=0, pid=mc_process.pid)
 
 '''
