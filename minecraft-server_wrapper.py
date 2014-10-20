@@ -279,7 +279,7 @@ def mc_shutdown():
 	retcode = -1
 	mc_process.stdin.write('stop\n')
 	try:
-		retcode = mc_process.wait(4)
+		retcode = mc_process.wait(8)
 	except subprocess.TimeoutExpired:
 		mc_process.terminate()
 		try:
