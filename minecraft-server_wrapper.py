@@ -20,30 +20,142 @@ import distutils.version
 import pwd
 import time
 
-VERSION = distutils.version.StrictVersion('0.3.0')
+VERSION = distutils.version.StrictVersion('0.4.0')
 SOURCE_URL = 'https://raw.githubusercontent.com/Gamocosm/minecraft-server_wrapper/master/minecraft-server_wrapper.py'
 
+ERR_SERVER_RUNNING = 'server_running'
+ERR_SERVER_NOT_RUNNING = 'server_not_running'
+ERR_NO_MINECRAFT = 'no_minecraft'
+ERR_INVALID_REQUEST = 'invalid_request'
+ERR_NO_AUTH = 'no_auth'
+ERR_OTHER = 'error_other'
+
+class Minecraft:
+	def __init__(self):
+		self.process = None
+		self.stdout = None
+		self.stderr = None
+
+	def pid(self):
+		if self.process is None:
+			return 0
+		if self.process.poll() is None:
+			return self.process.pid
+		return 0
+
+	def start(self, ram):
+		if self.pid() != 0:
+			return None
+		cmd = ['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui']
+		if os.path.isfile('minecraft_server-run.sh'):
+			cmd = ['bash', 'minecraft_server-run.sh']
+		elif not os.path.isfile('minecraft_server-run.jar'):
+			return ERR_NO_MINECRAFT
+		self.cleanup()
+		try:
+			self.stdout = open('minecraft-stdout.log', 'a')
+			self.stderr = open('minecraft-stderr.log', 'a')
+		except OSError:
+			app.logger.exception('Error opening Minecraft stdout and stderr files')
+			return ERR_OTHER
+		self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=self.stdout, stderr=self.stderr, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=False)
+		return None
+
+	def stop(self):
+		if self.pid() == 0:
+			return None
+		try:
+			self.process.communicate('stop\n', 8)
+		except subprocess.TimeoutExpired:
+			self.process.terminate()
+			try:
+				self.process.wait(4)
+			except subprocess.TimeoutExpired:
+				self.process.kill()
+		self.process = None
+		self.cleanup()
+		return None
+	
+	def exec(self, command):
+		if self.pid() == 0:
+			return ERR_SERVER_RUNNING
+		self.process.stdin.write(command + '\n')
+		return None
+
+	def properties(props=None):
+		if props is None:
+			try:
+				with open('server.properties') as f:
+					for line in f:
+						if '=' in line:
+							keyval = line.split('=')
+							props[keyval[0]] = keyval[1].strip()
+			except OSError:
+				pass
+			return props
+		tmp = tempfile.NamedTemporaryFile(delete=False)
+		props = props.copy()
+		try:
+			with open('server.properties', encoding='utf8') as src:
+				for line in src:
+					if '=' in line:
+						k = line.split('=')[0]
+						if k in props:
+							tmp.write(bytes(k + '=' + props[k].strip() + '\n', 'utf8'))
+							del(props[k])
+							continue
+					tmp.write(bytes(line, 'utf8'))
+			for k in props:
+				tmp.write(bytes(k + '=' + props[k].strip() + '\n', 'utf8'))
+			tmp.close()
+			os.remove(self.f)
+			shutil.move(tmp.name, self.f)
+		finally:
+			try:
+				if os.path.isfile(tmp.name):
+					os.remove(tmp.name)
+			except OSError:
+				pass
+		return self.properties()
+
+	def cleanup(self):
+		try:
+			if not self.stdout is None:
+				self.stdout.close()
+		except OSError:
+			app.logger.exception('Error closing Minecraft stdout file')
+		try:
+			if not self.stderr is None:
+				self.stderr.close()
+		except OSError:
+			app.logger.exception('Error closing Minecraft stderr file')
+
 app = flask.Flask(__name__)
-mc_process = None
+minecraft = Minecraft()
 auth_file = None
-minecraft_stdout = None
-minecraft_stderr = None
 
 # Handlers
 
+'''
+Handler for sigint and sigterm
+'''
 def signal_handler(signum=None, frame=None):
-	mc_shutdown()
+	minecraft.stop()
 	sys.exit(0)
 
+'''
+Separate process group from parent
+'''
 def subprocess_preexec_handler():
 	os.setpgrp()
 
 # Helpers
-def response_set_http_code(res, code):
-	res.status_code = code
+
+def build_response(status, http_status_code=200, **kwargs):
+	res = flask.jsonify(status=status, **kwargs)
+	res.status_code = http_status_code
 	return res
 
-# Helpers
 def response_check_auth(u, p):
 	try:
 		with open(auth_file) as f:
@@ -56,7 +168,7 @@ def response_check_auth(u, p):
 		return False
 
 def response_authenticate():
-	res = response_set_http_code(flask.jsonify(status=ERR_NO_AUTH), 401)
+	res = build_response(ERR_NO_AUTH, 401)
 	res.headers.add('WWW-Authenticate', 'Basic realm="Login Required"')
 	return res
 
@@ -73,22 +185,104 @@ def requires_auth(f):
 @app.after_request
 def after_request(res):
 	sys.stdout.flush()
+	sys.stderr.flush()
 	return res
 
 # Routes
-'''
-All responses include a status: int field. 0 for no errors
-'''
-ERR_SERVER_RUNNING = 1
-ERR_SERVER_NOT_RUNNING = 2
-ERR_NO_MINECRAFT = 3
-ERR_INVALID_REQUEST = 4
-ERR_NO_AUTH = 5
-ERR_OTHER = 128
 
+'''
+All responses include a status: string field. null for no errors
+'''
+
+'''
+response: {
+	'version': '1.2.3'
+}
+'''
 @app.route('/')
 def index():
-	return flask.jsonify(message='Minecraft server web wrapper.', status=0)
+	return build_response(None, message='Minecraft server wrapper.', version=str(VERSION))
+
+'''
+request: {
+	'url': string, # (optional)
+	'min_version': string, # (optional)
+}
+response: {
+}
+'''
+@app.route('/update_wrapper', methods=['POST'])
+@requires_auth
+def update_wrapper():
+	if minecraft.pid() != 0:
+		return build_response(ERR_SERVER_RUNNING)
+	data = flask.request.get_json(force=True)
+	url = data.get('url', SOURCE_URL)
+	min_version = data.get('min_version')
+	if min_version is None or VERSION < distutils.version.StrictVersion(min_version):
+		download_file(url, __file__)
+	print('here')
+	app.logger.info('herestderr')
+	return build_response(None)
+
+'''
+request: path=
+'''
+@app.route('/file')
+@requires_auth
+def get_file():
+	data = flask.request.args.get('path')
+	if data is None:
+		return build_response(ERR_INVALID_REQUEST, 400)
+	normed_path = os.path.normpath(data)
+	if normed_path.startswith('/'):
+		normed_path = normed_path[1:]
+	if normed_path.startswith('..'):
+		return build_response(ERR_INVALID_REQUEST, 400)
+	path = os.path.realpath(os.path.join(os.getcwd(), normed_path))
+	if os.path.isfile(path):
+		return flask.send_file(path, mimetype='application/octet-stream', as_attachment=True, attachment_filename='gamocosm-' + time.strftime('%Y_%b_%d').lower() + '-' + os.path.basename(path))
+	if os.path.isdir(path):
+		tmp = tempfile.mkdtemp()
+		try:
+			zip_path = os.path.join(tmp, 'a.zip')
+			z = zip_directory(path, zip_path)
+			return flask.send_file(zip_path, mimetype='application/zip', as_attachment=True, attachment_filename='gamocosm-' + time.strftime('%Y_%b_%d').lower() + '-' + os.path.basename(path) + '.zip')
+		finally:
+			shutil.rmtree(tmp)
+	return build_response(ERR_OTHER, 404)
+
+'''
+request: dir=
+response: {
+	'files': ['files'],
+	'folders': ['folders']
+}
+'''
+@app.route('/ls')
+@requires_auth
+def get_ls():
+	data = flask.request.args.get('dir')
+	if data is None:
+		return build_response(ERR_INVALID_REQUEST, 400)
+	normed_path = os.path.normpath(data)
+	if normed_path.startswith('/'):
+		normed_path = normed_path[1:]
+	if normed_path.startswith('..'):
+		return build_response(ERR_INVALID_REQUEST, 400)
+	path = os.path.realpath(os.path.join(os.getcwd(), normed_path))
+	if os.path.isfile(path):
+		return build_response(ERR_INVALID_REQUEST, 400)
+	try:
+		dirs = []
+		files = []
+		for r, d, f in os.walk(path):
+			dirs.extend(d)
+			files.extend(f)
+			break
+		return build_response(None, files=files, folders=dirs)
+	except OSError:
+		return build_response(ERR_INVALID_REQUEST, 400)
 
 '''
 request: {
@@ -101,44 +295,13 @@ response: {
 @app.route('/start', methods=['POST'])
 @requires_auth
 def minecraft_start():
-	global mc_process
-	global minecraft_stdout
-	global minecraft_stderr
-	if not minecraft_is_running():
-		data = flask.request.get_json(force=True)
-		ram = data.get('ram')
-		if ram is None:
-			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-		cmd = ['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui']
-		shell = False
-		if not os.path.isfile('minecraft_server-run.jar'):
-			if os.path.isfile('minecraft_server-run.sh') and os.access('minecraft_server-run.sh', os.X_OK):
-				cmd = ['./minecraft_server-run.sh']
-				shell = True
-			else:
-				return response_set_http_code(flask.jsonify(status=ERR_NO_MINECRAFT), 500)
-		try:
-			if not minecraft_stdout is None:
-				minecraft_stdout.close()
-		except OSError:
-			app.logger.exception('Error closing Minecraft stdout file')
-		try:
-			if not minecraft_stdout is None:
-				minecraft_stderr.close()
-		except OSError:
-			app.logger.exception('Error closing Minecraft stderr file')
-		try:
-			minecraft_stdout = open('minecraft-stdout.log', 'a')
-			minecraft_stderr = open('minecraft-stderr.log', 'a')
-		except OSError:
-			app.logger.exception('Error opening Minecraft stdout and stderr files')
-			return response_set_http_code(flask.jsonify(status=ERR_OTHER), 500)
-		mc_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=minecraft_stdout, stderr=minecraft_stderr, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=shell)
-	return flask.jsonify(status=0, pid=mc_process.pid)
+	data = flask.request.get_json(force=True)
+	ram = data.get('ram')
+	if ram is None:
+		return build_response(ERR_INVALID_REQUEST, 400)
+	return build_response(minecraft.start(ram), minecraft.pid())
 
 '''
-request: {
-}
 response: {
 	retcode: 1234
 }
@@ -146,13 +309,9 @@ response: {
 @app.route('/stop')
 @requires_auth
 def minecraft_stop():
-	if not minecraft_is_running():
-		return flask.jsonify(status=0, retcode=0)
-	return flask.jsonify(status=0, retcode=mc_shutdown())
+	return build_response(minecraft.stop(), minecraft.pid())
 
 '''
-request: {
-}
 response: {
 	pid: 1234
 }
@@ -160,9 +319,7 @@ response: {
 @app.route('/pid')
 @requires_auth
 def minecraft_pid():
-	if not minecraft_is_running():
-		return flask.jsonify(status=0, pid=0)
-	return flask.jsonify(status=0, pid=mc_process.pid)
+	return build_response(None, minecraft.pid())
 
 '''
 request: {
@@ -174,14 +331,11 @@ response: {
 @app.route('/exec', methods=['POST'])
 @requires_auth
 def minecraft_exec():
-	if not minecraft_is_running():
-		return response_set_http_code(flask.jsonify(status=ERR_SERVER_NOT_RUNNING), 400)
 	data = flask.request.get_json(force=True)
 	command = data.get('command')
 	if command is None:
-		return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-	mc_process.stdin.write(command + '\n')
-	return flask.jsonify(status=0)
+		return build_response(ERR_INVALID_REQUEST, 400)
+	return build_response(minecraft.exec(command))
 
 '''
 - properties only mandatory for POST
@@ -203,205 +357,21 @@ def minecraft_server_properties():
 	if flask.request.method == 'POST':
 		data = flask.request.get_json(force=True)
 		if not isinstance(data.get('properties'), dict):
-			return response_set_http_code(flask.jsonify(status=ERR_INVALID_REQUEST), 400)
-		properties = MinecraftProperties('server.properties')
-		properties.update_properties(data['properties'])
-	properties = minecraft_read_server_properties()
-	return flask.jsonify(status=0, properties=properties)
+			return build_response(ERR_INVALID_REQUEST, 400)
+		properties = minecraft.properties(data['properties'])
+	if properties is None:
+		properties = minecraft.properties()
+	return build_response(None, properties=properties)
 
-'''
-request: {
-}
-response: {
-}
-'''
-@app.route('/backup', methods=['POST'])
-@requires_auth
-def minecraft_backup():
-	if minecraft_is_running():
-		return flask.jsonify(status=ERR_SERVER_RUNNING)
-	zip_name = minecraft_zip_world()
-	minecraft_trim_old_backups()
-	return flask.jsonify(status=0)
+# Utility
 
-'''
-request: {
-	'url': string, # (optional)
-	'min_version': string, # (optional)
-}
-response: {
-}
-'''
-@app.route('/update_wrapper', methods=['POST'])
-@requires_auth
-def update_wrapper():
-	if minecraft_is_running():
-		return flask.jsonify(status=ERR_SERVER_RUNNING)
-	data = flask.request.get_json(force=True)
-	url = data.get('url', SOURCE_URL)
-	min_version = data.get('min_version')
-	if min_version is None or VERSION < distutils.version.StrictVersion(min_version):
-		download_file(url, __file__)
-	return flask.jsonify(status=0)
-
-'''
-request: {
-}
-response: {
-	'version': '1.2.3'
-}
-'''
-@app.route('/version')
-@requires_auth
-def version():
-	return flask.jsonify(status=0, version=str(VERSION))
-
-'''
-request: {
-}
-response: {
-}
-'''
-@app.route('/download_world')
-@requires_auth
-def minecraft_download_world():
-	if minecraft_is_running():
-		return flask.jsonify(status=ERR_SERVER_RUNNING)
-	zip_name = os.path.realpath(minecraft_zip_world())
-	return flask.send_file(zip_name, mimetype='application/zip', as_attachment=True, attachment_filename='minecraft-world-' + time.strftime('%Y_%b_%d').lower() + '.zip')
-
-# Minecraft functions
-
-def mc_shutdown():
-	global mc_process
-	if not minecraft_is_running():
-		return
-	retcode = -1
-	mc_process.stdin.write('stop\n')
-	try:
-		retcode = mc_process.wait(8)
-	except subprocess.TimeoutExpired:
-		mc_process.terminate()
-		try:
-			retcode = mc_process.wait(4)
-		except subprocess.TimeoutExpired:
-			mc_process.kill()
-	mc_process = None
-	return retcode
-
-class MinecraftProperties:
-	WHITELISTED_PROPERTIES = {
-		'allow-flight'
-		, 'allow-nether'
-		, 'announce-player-achievements'
-		, 'difficulty'
-		, 'enable-command-block'
-		, 'force-gamemode'
-		, 'gamemode'
-		, 'generate-structures'
-		, 'generator-settings'
-		, 'hardcore'
-		, 'level-name'
-		, 'level-seed'
-		, 'level-type'
-		, 'max-build-height'
-		, 'max-players'
-		, 'motd'
-		, 'online-mode'
-		, 'op-permission-level'
-		, 'player-idle-timeout'
-		, 'pvp'
-		, 'resource-pack'
-		, 'server-name'
-		, 'snooper-enabled'
-		, 'spawn-animals'
-		, 'spawn-monsters'
-		, 'spawn-npcs'
-		, 'spawn-protection'
-		, 'view-distance'
-		, 'white-list'
-	}
-	def __init__(self, f):
-		self.f = f
-
-	def update_properties(self, keyvals):
-		tmp = tempfile.NamedTemporaryFile(delete=False)
-		keyvals = keyvals.copy()
-		try:
-			with open(self.f) as src:
-				for line in src:
-					if '=' in line:
-						k = line.split('=')[0]
-						if k in keyvals:
-							tmp.write(bytes(k + '=' + keyvals[k] + '\n', 'utf8'))
-							del(keyvals[k])
-							continue
-					tmp.write(bytes(line, 'utf8'))
-			for k in keyvals:
-				if k in MinecraftProperties.WHITELISTED_PROPERTIES:
-					tmp.write(bytes(k + '=' + keyvals[k] + '\n', 'utf8'))
-			tmp.close()
-			os.remove(self.f)
-			shutil.move(tmp.name, self.f)
-		finally:
-			try:
-				os.remove(tmp.name)
-			except IOError:
-				pass
-
-def minecraft_read_server_properties():
-	properties = {}
-	try:
-		with open('server.properties') as f:
-			for line in f:
-				if '=' in line:
-					keyval = line.split('=')
-					properties[keyval[0]] = keyval[1].strip()
-	except IOError:
-		pass
-	return properties
-
-def minecraft_trim_old_backups():
-	mkdir_silent('backups')
-	backups = [f for f in os.listdir('backups') if f.endswith('.zip')]
-	backups.sort()
-	for i in range(10, len(backups)):
-		os.remove('backups/' + backups[i - 10])
-
-def minecraft_world_name():
-	return minecraft_read_server_properties().get('level-name')
-
-def minecraft_zip_world():
-	if os.path.isfile('backups'):
-		os.remove('backups')
-	if not os.path.exists('backups'):
-		os.makedirs('backups')
-	zip_name = 'backups/minecraft-world_backup-' + str(datetime.datetime.today()).replace('-', '_').replace(' ', '-').replace(':', '_').replace('.', '-') + '.zip'
-	world_name = minecraft_world_name()
-	if world_name is None or not (os.path.exists(world_name) and os.path.isdir(world_name)):
-		raise RuntimeError('World name not found.')
-	if os.path.exists(zip_name):
-		if os.path.isfile(zip_name):
-			os.remove(zip_name)
-		else:
-			shutil.rmtree(zip_name)
+def zip_directory(path, zip_name):
 	z = zipfile.ZipFile(zip_name, 'w')
-	zip_directory(world_name, z)
-	return zip_name
-
-def zip_directory(path, z):
 	for root, dirs, files in os.walk(path):
 		for f in files:
-			z.write(os.path.join(root, f))
-
-def minecraft_is_running():
-	global mc_process
-	if mc_process is None:
-		return False
-	if not mc_process.poll() is None:
-		mc_process = None
-		return False
-	return True
+			f_path = os.path.join(root, f)
+			z.write(f_path, os.path.relpath(f_path, path))
+	return z
 
 def download_file(url, path):
 	path = os.path.realpath(path)
@@ -410,20 +380,6 @@ def download_file(url, path):
 			shutil.copyfileobj(response, tmp)
 		os.rename(tmp.name, path)
 	return path
-
-def mkdir_silent(path):
-	if os.path.isfile(path):
-		os.remove(path)
-	if not os.path.exists(path):
-		os.makedirs(path)
-
-def rm_silent(path):
-	if not os.path.exists(path):
-		return
-	if os.path.isfile(path):
-		os.remove(path)
-	else:
-		shutil.rmtree(path)
 
 # Main
 
