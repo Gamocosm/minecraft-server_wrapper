@@ -19,135 +19,20 @@ import zipfile
 import distutils.version
 import pwd
 import time
+from minecraft import Minecraft
+from daemon import Daemon
 
 VERSION = distutils.version.StrictVersion('0.4.0')
 SOURCE_URL = 'https://raw.githubusercontent.com/Gamocosm/minecraft-server_wrapper/master/minecraft-server_wrapper.py'
 
-ERR_SERVER_RUNNING = 'server_running'
-ERR_SERVER_NOT_RUNNING = 'server_not_running'
-ERR_NO_MINECRAFT = 'no_minecraft'
 ERR_INVALID_REQUEST = 'invalid_request'
 ERR_NO_AUTH = 'no_auth'
 ERR_OTHER = 'error_other'
-
-class Minecraft:
-	def __init__(self):
-		self.process = None
-		self.stdout = None
-		self.stderr = None
-
-	def pid(self):
-		if self.process is None:
-			return 0
-		if self.process.poll() is None:
-			return self.process.pid
-		return 0
-
-	def start(self, ram):
-		if self.pid() != 0:
-			return None
-		cmd = ['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui']
-		if os.path.isfile('minecraft_server-run.sh'):
-			cmd = ['bash', 'minecraft_server-run.sh']
-		elif not os.path.isfile('minecraft_server-run.jar'):
-			return ERR_NO_MINECRAFT
-		self.cleanup()
-		try:
-			self.stdout = open('minecraft-stdout.log', 'a')
-			self.stderr = open('minecraft-stderr.log', 'a')
-		except OSError:
-			app.logger.exception('Error opening Minecraft stdout and stderr files')
-			return ERR_OTHER
-		self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=self.stdout, stderr=self.stderr, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=False)
-		return None
-
-	def stop(self):
-		if self.pid() == 0:
-			return None
-		try:
-			self.process.communicate('stop\n', 8)
-		except subprocess.TimeoutExpired:
-			self.process.terminate()
-			try:
-				self.process.wait(4)
-			except subprocess.TimeoutExpired:
-				self.process.kill()
-		self.process = None
-		self.cleanup()
-		return None
-	
-	def exec(self, command):
-		if self.pid() == 0:
-			return ERR_SERVER_RUNNING
-		self.process.stdin.write(command + '\n')
-		return None
-
-	def properties(props=None):
-		if props is None:
-			try:
-				with open('server.properties') as f:
-					for line in f:
-						if '=' in line:
-							keyval = line.split('=')
-							props[keyval[0]] = keyval[1].strip()
-			except OSError:
-				pass
-			return props
-		tmp = tempfile.NamedTemporaryFile(delete=False)
-		props = props.copy()
-		try:
-			with open('server.properties', encoding='utf8') as src:
-				for line in src:
-					if '=' in line:
-						k = line.split('=')[0]
-						if k in props:
-							tmp.write(bytes(k + '=' + props[k].strip() + '\n', 'utf8'))
-							del(props[k])
-							continue
-					tmp.write(bytes(line, 'utf8'))
-			for k in props:
-				tmp.write(bytes(k + '=' + props[k].strip() + '\n', 'utf8'))
-			tmp.close()
-			os.remove(self.f)
-			shutil.move(tmp.name, self.f)
-		finally:
-			try:
-				if os.path.isfile(tmp.name):
-					os.remove(tmp.name)
-			except OSError:
-				pass
-		return self.properties()
-
-	def cleanup(self):
-		try:
-			if not self.stdout is None:
-				self.stdout.close()
-		except OSError:
-			app.logger.exception('Error closing Minecraft stdout file')
-		try:
-			if not self.stderr is None:
-				self.stderr.close()
-		except OSError:
-			app.logger.exception('Error closing Minecraft stderr file')
+ERR_BADNESS = 'badness'
 
 app = flask.Flask(__name__)
-minecraft = Minecraft()
+minecraft = Minecraft('minecraft.pid', app.logger)
 auth_file = None
-
-# Handlers
-
-'''
-Handler for sigint and sigterm
-'''
-def signal_handler(signum=None, frame=None):
-	minecraft.stop()
-	sys.exit(0)
-
-'''
-Separate process group from parent
-'''
-def subprocess_preexec_handler():
-	os.setpgrp()
 
 # Helpers
 
@@ -188,6 +73,13 @@ def after_request(res):
 	sys.stderr.flush()
 	return res
 
+@app.errorhandler(Exception)
+def errorhandler(error):
+	sys.stdout.flush()
+	sys.stderr.flush()
+	app.logger.exception('Badness')
+	return build_response(ERR_BADNESS, 500)
+
 # Routes
 
 '''
@@ -196,12 +88,15 @@ All responses include a status: string field. null for no errors
 
 '''
 response: {
-	'version': '1.2.3'
+	'version': '1.2.3',
+	'pid': 123
 }
 '''
 @app.route('/')
 def index():
-	return build_response(None, message='Minecraft server wrapper.', version=str(VERSION))
+	print('hi')
+	awefawef
+	return build_response(None, message='Minecraft server wrapper.', version=str(VERSION), pid=minecraft.pid())
 
 '''
 request: {
@@ -215,7 +110,7 @@ response: {
 @requires_auth
 def update_wrapper():
 	if minecraft.pid() != 0:
-		return build_response(ERR_SERVER_RUNNING)
+		return build_response(mc.ERR_MINECRAFT_RUNNING)
 	data = flask.request.get_json(force=True)
 	url = data.get('url', SOURCE_URL)
 	min_version = data.get('min_version')
@@ -271,8 +166,10 @@ def get_ls():
 	if normed_path.startswith('..'):
 		return build_response(ERR_INVALID_REQUEST, 400)
 	path = os.path.realpath(os.path.join(os.getcwd(), normed_path))
-	if os.path.isfile(path):
+	if not os.path.isdir(path):
 		return build_response(ERR_INVALID_REQUEST, 400)
+	if not os.path.exists(path):
+		return build_response(ERR_OTHER, 404)
 	try:
 		dirs = []
 		files = []
@@ -299,7 +196,7 @@ def minecraft_start():
 	ram = data.get('ram')
 	if ram is None:
 		return build_response(ERR_INVALID_REQUEST, 400)
-	return build_response(minecraft.start(ram), minecraft.pid())
+	return build_response(minecraft.start(ram), pid=minecraft.pid())
 
 '''
 response: {
@@ -309,17 +206,7 @@ response: {
 @app.route('/stop')
 @requires_auth
 def minecraft_stop():
-	return build_response(minecraft.stop(), minecraft.pid())
-
-'''
-response: {
-	pid: 1234
-}
-'''
-@app.route('/pid')
-@requires_auth
-def minecraft_pid():
-	return build_response(None, minecraft.pid())
+	return build_response(minecraft.stop(), pid=minecraft.pid())
 
 '''
 request: {
@@ -354,6 +241,7 @@ response: {
 @app.route('/minecraft_properties', methods=['GET', 'POST'])
 @requires_auth
 def minecraft_server_properties():
+	properties = None
 	if flask.request.method == 'POST':
 		data = flask.request.get_json(force=True)
 		if not isinstance(data.get('properties'), dict):
@@ -381,17 +269,60 @@ def download_file(url, path):
 		os.rename(tmp.name, path)
 	return path
 
+# Handlers
+
+'''
+Handler for sigint and sigterm
+'''
+def signal_handler(signum, frame):
+	sys.exit(0)
+
+def shutdown():
+	minecraft.stop()
+
+'''
+Separate process group from parent
+'''
+def subprocess_preexec_handler():
+	os.setpgrp()
+
 # Main
 
-def main():
-	global auth_file
-	if len(sys.argv) > 1:
-		auth_file = sys.argv[1]
+def run():
+	# Note: Werkzeug server's reloader catches SIGTERM
+	# Our handler won't actually be called
 	for sig in [signal.SIGTERM, signal.SIGINT]:
 		signal.signal(sig, signal_handler)
+	atexit.register(shutdown)
 	handler = logging.StreamHandler()
 	app.logger.addHandler(handler)
 	app.run(host='0.0.0.0', use_reloader=True)
+
+def main():
+	global auth_file
+	pidfile = None
+	d = None
+	# Legacy 0.3.0
+	if len(sys.argv) == 2:
+		auth_file = sys.argv[1]
+	for i in range(1, len(sys.argv)):
+		arg = sys.argv[i]
+		if arg.startswith('--auth='):
+			auth_file = arg[len('--auth='):]
+	if len(sys.argv) > 2:
+		if sys.argv[1] == 'daemonize':
+			pidfile = sys.argv[2]
+			# Reloader will invoke main
+			del(sys.argv[2])
+			del(sys.argv[1])
+			d = Daemon(pidfile, 16, run)
+			d.start()
+		elif sys.argv[1] == 'stop':
+			pidfile = sys.argv[2]
+			d = Daemon(pidfile, 16, None)
+			d.stop()
+	if d is None:
+		run()
 
 if __name__ == '__main__':
 	main()
