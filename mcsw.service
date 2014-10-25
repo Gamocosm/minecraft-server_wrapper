@@ -1,0 +1,18 @@
+[Unit]
+Description=Minecraft Server Wrapper
+After=syslog.target network.target
+
+[Service]
+Type=forking
+PIDFile=/run/mcuser/mcsw.pid
+User=mcuser
+WorkingDirectory=/home/mcuser/minecraft
+Environment=
+PermissionsStartOnly=true
+ExecStartPre=/usr/bin/mkdir -p /var/run/mcuser
+ExecStartPre=/usr/bin/chown mcuser:mcuser /var/run/mcuser
+ExecStart=/opt/gamocosm/mcsw.py daemonize /var/run/mcuser/mcsw.pid --auth=/opt/gamocosm/mcsw-auth.txt >> /opt/gamocosm/mcsw-stdout.txt 2>> /opt/gamocosm/mcsw-stderr.txt
+ExecStop=/opt/gamocosm/mcsw.py stop /var/run/mcuser/mcsw.pid >> /opt/gamocosm/mcsw-stdout.txt 2>> /opt/gamocosm/mcsw-stderr.txt
+
+[Install]
+WantedBy=multi-user.target

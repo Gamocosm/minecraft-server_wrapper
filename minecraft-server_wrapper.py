@@ -31,7 +31,7 @@ ERR_OTHER = 'error_other'
 ERR_BADNESS = 'badness'
 
 app = flask.Flask(__name__)
-minecraft = Minecraft('minecraft.pid', app.logger)
+minecraft = None
 auth_file = None
 
 # Helpers
@@ -94,8 +94,6 @@ response: {
 '''
 @app.route('/')
 def index():
-	print('hi')
-	awefawef
 	return build_response(None, message='Minecraft server wrapper.', version=str(VERSION), pid=minecraft.pid())
 
 '''
@@ -271,32 +269,28 @@ def download_file(url, path):
 
 # Handlers
 
-'''
-Handler for sigint and sigterm
-'''
-def signal_handler(signum, frame):
-	sys.exit(0)
-
 def shutdown():
+	print('This is it ' + str(minecraft) + ', ' + str(os.getpid()))
 	minecraft.stop()
-
-'''
-Separate process group from parent
-'''
-def subprocess_preexec_handler():
-	os.setpgrp()
+	sys.stdout.flush()
+	sys.stderr.flush()
 
 # Main
 
 def run():
+	global minecraft
+	minecraft = Minecraft('minecraft.pid', app.logger)
+	print('This is you ' + str(minecraft) + ', ' + str(os.getpid()))
+	import threading
+	print('I am a daemon thread ' + str(threading.currentThread().daemon))
+	import traceback
+	traceback.print_stack()
 	# Note: Werkzeug server's reloader catches SIGTERM
-	# Our handler won't actually be called
-	for sig in [signal.SIGTERM, signal.SIGINT]:
-		signal.signal(sig, signal_handler)
+	signal.signal(signal.SIGINT, lambda signum, frame: sys.exit(0))
 	atexit.register(shutdown)
 	handler = logging.StreamHandler()
 	app.logger.addHandler(handler)
-	app.run(host='0.0.0.0', use_reloader=True)
+	app.run(host='0.0.0.0')
 
 def main():
 	global auth_file
@@ -312,7 +306,7 @@ def main():
 	if len(sys.argv) > 2:
 		if sys.argv[1] == 'daemonize':
 			pidfile = sys.argv[2]
-			# Reloader will invoke main
+			# Reloader will spawn new process with args
 			del(sys.argv[2])
 			del(sys.argv[1])
 			d = Daemon(pidfile, 16, run)

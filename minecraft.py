@@ -2,9 +2,13 @@ import os
 import subprocess
 import shutil
 import tempfile
+import daemon
 
 ERR_NO_MINECRAFT = 'no_minecraft'
 ERR_MINECRAFT_RUNNING = 'minecraft_running'
+ERR_MINECRAFT_NOT_RUNNING = 'minecraft_not_running'
+ERR_MINECRAFT_ORPHANED = 'minecraft_orphaned'
+ERR_PIDFILE_LOCKED = 'pidfile_locked'
 ERR_OTHER = 'error_other'
 
 class Minecraft:
@@ -16,6 +20,7 @@ class Minecraft:
 		self.logger = logger
 
 	def pid(self):
+		print('This is me ' + str(self) + ', ' + str(os.getpid()))
 		if self.process is None:
 			return 0
 		if self.process.poll() is None:
@@ -25,6 +30,8 @@ class Minecraft:
 	def start(self, ram):
 		if self.pid() != 0:
 			return None
+		if self.minecraft_running_elsewhere():
+			return ERR_MINECRAFT_ORPHANED
 		cmd = ['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui']
 		if os.path.isfile('minecraft_server-run.sh'):
 			cmd = ['bash', 'minecraft_server-run.sh']
@@ -37,10 +44,16 @@ class Minecraft:
 		except OSError:
 			logger.exception('Error opening Minecraft stdout and stderr files')
 			return ERR_OTHER
-		self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=self.stdout, stderr=self.stderr, universal_newlines=True, preexec_fn=subprocess_preexec_handler, shell=False)
+		def create_process(f):
+			self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=self.stdout, stderr=self.stderr, universal_newlines=True, preexec_fn=lambda: os.setpgrp(), shell=False)
+			daemon.write_pid(f, self.process.pid)
+		if not daemon.open_pid(self.pidfile, create_process):
+			return ERR_PIDFILE_LOCKED
 		return None
 
-	def stop(self):
+	def stop(self):#
+		import pdb
+		pdb.set_trace()
 		if self.pid() == 0:
 			return None
 		try:
@@ -57,7 +70,7 @@ class Minecraft:
 	
 	def exec(self, command):
 		if self.pid() == 0:
-			return ERR_MINECRAFT_RUNNING
+			return ERR_MINECRAFT_NOT_RUNNING
 		self.process.stdin.write(command + '\n')
 		return None
 
@@ -98,7 +111,12 @@ class Minecraft:
 				pass
 		return self.properties()
 
+	def minecraft_running_elsewhere(self):
+		return daemon.read_pid(self.pidfile)
+
 	def cleanup(self):
+		if self.pid() == 0:
+			daemon.delete_pid(self.pidfile)
 		try:
 			if not self.stdout is None:
 				self.stdout.close()

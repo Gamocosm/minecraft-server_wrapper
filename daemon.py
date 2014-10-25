@@ -22,6 +22,49 @@ import time
 import atexit
 import signal
 
+def read_pid(pidfile):
+	pid = None
+	try:
+		with open(pidfile, encoding='utf8') as f:
+			try:
+				pid = int(f.readline().strip())
+				try:
+					os.kill(pid, 0)
+				except ProcessLookupError:
+					delete_pid(pidfile)
+					pid = None
+			except ValueError:
+				delete_pid(pidfile)
+	except FileNotFoundError:
+		pass
+	return pid
+
+def open_pid(pidfile, success):
+	try:
+		with open(pidfile, 'x', encoding='utf8') as f:
+			success(f)
+	except FileExistsError:
+		return False
+	return True
+
+def create_pid(pidfile, pid):
+	return open_pid(pidfile, lambda f: write_pid(f, pid))
+
+def write_pid(f, pid):
+	f.write('{:d}\n'.format(pid))
+
+def delete_pid(pidfile):
+	try:
+		os.remove(pidfile)
+	except FileNotFoundError:
+		pass
+
+# From python subprocess source
+def close_fds():
+	max_fds = os.sysconf('SC_OPEN_MAX')
+	os.closerange(3, max_fds)
+
+# stdin, stdout, stderr, and working directory expected to be set (e.g. systemd)
 class Daemon:
 	def __init__(self, pidfile, timeout, do_it):
 		self.pidfile = pidfile
@@ -36,23 +79,23 @@ class Daemon:
 		pid = os.fork()
 		if pid > 0:
 			os._exit(0)
-		self.close_fds()
-		atexit.register(self.delete_pid)
-		return self.create_pid(os.getpid())
+		close_fds()
+		atexit.register(lambda: delete_pid(self.pidfile))
+		return create_pid(self.pidfile, os.getpid())
 
 	def start(self):
-		pid = self.read_pid()
+		pid = read_pid(self.pidfile)
 		if not pid is None:
 			sys.stderr.write('Pid {:s} with process {:d} already exists\n'.format(self.pidfile, pid))
-			return False
+			return
 		if self.daemonize():
-			return self.run()
+			self.run()
 		else:
-			sys.stderr.write('Pid {:s} with process {:d} already exists (tried creating pid)\n'.format(self.pidfile, pid))
-			return False
+			sys.stderr.write('Pid {:s} with process {:d} already exists (tried creating pidfile)\n'.format(self.pidfile, pid))
+			return
 
 	def stop(self):
-		pid = self.read_pid()
+		pid = read_pid(self.pidfile)
 		if pid is None:
 			return
 		i = 0
@@ -69,31 +112,3 @@ class Daemon:
 	def run(self):
 		# Just (for Radu)
 		self.nike()
-
-	def read_pid(self):
-		pid = None
-		try:
-			with open(self.pidfile, encoding='utf8') as f:
-				pid = int(f.readline().strip())
-		except FileNotFoundError:
-			pass
-		return pid
-
-	def create_pid(self, pid):
-		try:
-			with open(self.pidfile, 'x', encoding='utf8') as f:
-				f.write('{:d}\n'.format(pid))
-		except FileExistsError:
-			return False
-		return True
-
-	def delete_pid(self):
-		try:
-			os.remove(self.pidfile)
-		except FileNotFoundError:
-			pass
-
-	# From python subprocess source
-	def close_fds(self):
-		max_fds = os.sysconf('SC_OPEN_MAX')
-		os.closerange(3, max_fds)
