@@ -20,7 +20,6 @@ class Minecraft:
 		self.logger = logger
 
 	def pid(self):
-		print('This is me ' + str(self) + ', ' + str(os.getpid()))
 		if self.process is None:
 			return 0
 		if self.process.poll() is None:
@@ -52,8 +51,6 @@ class Minecraft:
 		return None
 
 	def stop(self):#
-		import pdb
-		pdb.set_trace()
 		if self.pid() == 0:
 			return None
 		try:

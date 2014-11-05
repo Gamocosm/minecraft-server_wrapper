@@ -270,7 +270,6 @@ def download_file(url, path):
 # Handlers
 
 def shutdown():
-	print('This is it ' + str(minecraft) + ', ' + str(os.getpid()))
 	minecraft.stop()
 	sys.stdout.flush()
 	sys.stderr.flush()
@@ -280,11 +279,6 @@ def shutdown():
 def run():
 	global minecraft
 	minecraft = Minecraft('minecraft.pid', app.logger)
-	print('This is you ' + str(minecraft) + ', ' + str(os.getpid()))
-	import threading
-	print('I am a daemon thread ' + str(threading.currentThread().daemon))
-	import traceback
-	traceback.print_stack()
 	# Note: Werkzeug server's reloader catches SIGTERM
 	signal.signal(signal.SIGINT, lambda signum, frame: sys.exit(0))
 	atexit.register(shutdown)
