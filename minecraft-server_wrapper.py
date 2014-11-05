@@ -309,12 +309,12 @@ def main():
 			# Reloader will spawn new process with args
 			del(sys.argv[2])
 			del(sys.argv[1])
-			d = Daemon(pidfile, 16, run)
-			d.start()
+			d = Daemon(pidfile)
+			d.start(run)
 		elif sys.argv[1] == 'stop':
 			pidfile = sys.argv[2]
-			d = Daemon(pidfile, 16, None)
-			d.stop()
+			d = Daemon(pidfile)
+			d.stop(16)
 	if d is None:
 		run()
 

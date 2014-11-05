@@ -66,10 +66,8 @@ def close_fds():
 
 # stdin, stdout, stderr, and working directory expected to be set (e.g. systemd)
 class Daemon:
-	def __init__(self, pidfile, timeout, do_it):
+	def __init__(self, pidfile):
 		self.pidfile = pidfile
-		self.timeout = timeout
-		self.nike = do_it
 
 	def daemonize(self):
 		pid = os.fork()
@@ -83,32 +81,32 @@ class Daemon:
 		atexit.register(lambda: delete_pid(self.pidfile))
 		return create_pid(self.pidfile, os.getpid())
 
-	def start(self):
+	def start(self, do_it):
 		pid = read_pid(self.pidfile)
 		if not pid is None:
 			sys.stderr.write('Pid {:s} with process {:d} already exists\n'.format(self.pidfile, pid))
 			return
 		if self.daemonize():
-			self.run()
+			self.run(do_it)
 		else:
 			sys.stderr.write('Pid {:s} with process {:d} already exists (tried creating pidfile)\n'.format(self.pidfile, pid))
 			return
 
-	def stop(self):
+	def stop(self, timeout):
 		pid = read_pid(self.pidfile)
 		if pid is None:
 			return
 		i = 0
-		while i < self.timeout:
+		while i < timeout:
 			try:
 				os.kill(pid, signal.SIGTERM)
 				time.sleep(1)
 			except ProcessLookupError:
 				break
-		if i == self.timeout:
-			sys.stderr.write('Process {:d} did not stop after {:d} SIGTERMs, killing\n'.format(pid, self.timeout))
+		if i == timeout:
+			sys.stderr.write('Process {:d} did not stop after {:d} SIGTERMs, killing\n'.format(pid, timeout))
 			os.kill(pid, signal.SIGKILL)
 
-	def run(self):
-		# Just (for Radu)
-		self.nike()
+	def run(self, nike):
+		# Just do it (for Radu)
+		nike()
