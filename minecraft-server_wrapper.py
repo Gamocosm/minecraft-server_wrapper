@@ -93,8 +93,17 @@ response: {
 }
 '''
 @app.route('/')
+@requires_auth
 def index():
 	return build_response(None, message='Minecraft server wrapper.', version=str(VERSION), pid=minecraft.pid())
+
+'''
+Legacy
+'''
+@app.route('/pid')
+@requires_auth
+def minecraft_pid():
+	return build_response(None, pid=minecraft.pid())
 
 '''
 request: {
@@ -144,6 +153,43 @@ def get_file():
 		finally:
 			shutil.rmtree(tmp)
 	return build_response(ERR_OTHER, 404)
+
+'''
+Legacy
+'''
+@app.route('/download_world')
+@requires_auth
+def minecraft_download_world():
+	if minecraft.pid() != 0:
+		return build_response(mc.ERR_MINECRAFT_RUNNING)
+	world_name = minecraft.properties().get('level-name')
+	if world_name is None:
+		return build_response(ERR_OTHER, 404)
+	tmp = tempfile.mkdtemp()
+	try:
+		zip_path = os.path.join(tmp, 'a.zip')
+		z = zip_directory(world_name, zip_path)
+		return flask.send_file(zip_path, mimetype='application/zip', as_attachment=True, attachment_filename='minecraft-world' + time.strftime('%Y_%b_%d').lower() + '.zip')
+	finally:
+		shutil.rmtree(tmp)
+	return build_response(ERR_OTHER, 400)
+
+'''
+Legacy
+'''
+@app.route('/backup', methods=['POST'])
+@requires_auth
+def minecraft_backup():
+	if os.path.isfile('backups'):
+		os.remove('backups')
+	if not os.path.exists('backups'):
+		os.makedirs('backups')
+	zip_name = 'backups/minecraft-world_backup-' + str(datetime.datetime.today()).replace('-', '_').replace(' ', '-').replace(':', '_').replace('.', '-') + '.zip'
+	world_name = minecraft.properties().get('level-name')
+	if world_name is None:
+		return build_response(ERR_OTHER, 400)
+	zip_directory(world_name, zip_name)
+	return build_response(None)
 
 '''
 request: dir=
@@ -281,6 +327,7 @@ def run():
 	minecraft = Minecraft('minecraft.pid', app.logger)
 	# Note: Werkzeug server's reloader catches SIGTERM
 	signal.signal(signal.SIGINT, lambda signum, frame: sys.exit(0))
+	signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
 	atexit.register(shutdown)
 	handler = logging.StreamHandler()
 	app.logger.addHandler(handler)
