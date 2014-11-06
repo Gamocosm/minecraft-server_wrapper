@@ -169,7 +169,7 @@ def minecraft_download_world():
 	try:
 		zip_path = os.path.join(tmp, 'a.zip')
 		z = zip_directory(world_name, zip_path)
-		return flask.send_file(zip_path, mimetype='application/zip', as_attachment=True, attachment_filename='minecraft-world' + time.strftime('%Y_%b_%d').lower() + '.zip')
+		return flask.send_file(zip_path, mimetype='application/zip', as_attachment=True, attachment_filename='minecraft-world-' + time.strftime('%Y_%b_%d').lower() + '.zip')
 	finally:
 		shutil.rmtree(tmp)
 	return build_response(ERR_OTHER, 400)

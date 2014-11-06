@@ -98,8 +98,8 @@ class Minecraft:
 			for k in props:
 				tmp.write(bytes(k + '=' + props[k].strip() + '\n', 'utf8'))
 			tmp.close()
-			os.remove(self.f)
-			shutil.move(tmp.name, self.f)
+			os.remove('server.properties')
+			shutil.move(tmp.name, 'server.properties')
 		finally:
 			try:
 				if os.path.isfile(tmp.name):

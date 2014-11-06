@@ -11,8 +11,8 @@ Environment=
 PermissionsStartOnly=true
 ExecStartPre=/usr/bin/mkdir -p /var/run/mcuser
 ExecStartPre=/usr/bin/chown mcuser:mcuser /var/run/mcuser
-ExecStart=/usr/bin/python3 /opt/gamocosm/minecraft-server_wrapper.py daemonize /var/run/mcuser/mcsw.pid --auth=/opt/gamocosm/mcsw-auth.txt >> /opt/gamocosm/mcsw-stdout.txt 2>> /opt/gamocosm/mcsw-stderr.txt
-ExecStop=/usr/bin/python3 /opt/gamocosm/minecraft-server_wrapper.py stop /var/run/mcuser/mcsw.pid >> /opt/gamocosm/mcsw-stdout.txt 2>> /opt/gamocosm/mcsw-stderr.txt
+ExecStart=/usr/bin/python3 /opt/gamocosm/minecraft-server_wrapper.py daemonize /var/run/mcuser/mcsw.pid --auth=/opt/gamocosm/mcsw-auth.txt
+ExecStop=/usr/bin/python3 /opt/gamocosm/minecraft-server_wrapper.py stop /var/run/mcuser/mcsw.pid
 
 [Install]
 WantedBy=multi-user.target
