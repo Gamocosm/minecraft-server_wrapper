@@ -84,28 +84,32 @@ class Daemon:
 	def start(self, do_it):
 		pid = read_pid(self.pidfile)
 		if not pid is None:
-			sys.stderr.write('Pid {:s} with process {:d} already exists\n'.format(self.pidfile, pid))
+			sys.stderr.write('Pidfile {:s} with process {:d} already exists\n'.format(self.pidfile, pid))
 			return
 		if self.daemonize():
 			self.run(do_it)
 		else:
-			sys.stderr.write('Pid {:s} with process {:d} already exists (tried creating pidfile)\n'.format(self.pidfile, pid))
+			sys.stderr.write('Pidfile {:s} with process {:d} already exists (tried creating pidfile)\n'.format(self.pidfile, pid))
 			return
 
 	def stop(self, timeout):
 		pid = read_pid(self.pidfile)
 		if pid is None:
 			return
+		try:
+			os.kill(pid, signal.SIGTERM)
+		except ProcessLookupError:
+			return
 		i = 0
 		while i < timeout:
 			try:
-				os.kill(pid, signal.SIGTERM)
 				time.sleep(1)
+				os.kill(pid, 0)
+				i += 1
 			except ProcessLookupError:
-				break
-		if i == timeout:
-			sys.stderr.write('Process {:d} did not stop after {:d} SIGTERMs, killing\n'.format(pid, timeout))
-			os.kill(pid, signal.SIGKILL)
+				return
+		sys.stderr.write('Process {:d} did not stop after {:d} seconds, killing\n'.format(pid, timeout))
+		os.kill(pid, signal.SIGKILL)
 
 	def run(self, nike):
 		# Just do it (for Radu)

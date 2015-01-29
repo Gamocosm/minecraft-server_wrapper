@@ -55,7 +55,7 @@ class Minecraft:
 			return None
 		try:
 			self.process.stdin.write('stop\n')
-			self.process.wait(8)
+			self.process.wait(16)
 		except subprocess.TimeoutExpired:
 			self.process.terminate()
 			try:

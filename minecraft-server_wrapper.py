@@ -355,7 +355,7 @@ def main():
 		elif sys.argv[1] == 'stop':
 			pidfile = sys.argv[2]
 			d = Daemon(pidfile)
-			d.stop(16)
+			d.stop(24)
 	if d is None:
 		run()
 
