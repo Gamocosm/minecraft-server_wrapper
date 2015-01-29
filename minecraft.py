@@ -54,7 +54,8 @@ class Minecraft:
 		if self.pid() == 0:
 			return None
 		try:
-			self.process.communicate('stop\n', 8)
+			self.process.stdin.write('stop\n')
+			self.process.wait(8)
 		except subprocess.TimeoutExpired:
 			self.process.terminate()
 			try:
@@ -64,7 +65,7 @@ class Minecraft:
 		self.process = None
 		self.cleanup()
 		return None
-	
+
 	def exec(self, command):
 		if self.pid() == 0:
 			return ERR_MINECRAFT_NOT_RUNNING
@@ -86,15 +87,19 @@ class Minecraft:
 		tmp = tempfile.NamedTemporaryFile(delete=False)
 		props = props.copy()
 		try:
-			with open('server.properties', encoding='utf8') as src:
-				for line in src:
-					if '=' in line:
-						k = line.split('=')[0]
-						if k in props:
-							tmp.write(bytes(k + '=' + props[k].strip() + '\n', 'utf8'))
-							del(props[k])
-							continue
-					tmp.write(bytes(line, 'utf8'))
+			# we do this loop again to keep the same order
+			try:
+				with open('server.properties', encoding='utf8') as src:
+					for line in src:
+						if '=' in line:
+							k = line.split('=')[0]
+							if k in props:
+								tmp.write(bytes(k + '=' + props[k].strip() + '\n', 'utf8'))
+								del(props[k])
+								continue
+						tmp.write(bytes(line, 'utf8'))
+			except OSError:
+				pass
 			for k in props:
 				tmp.write(bytes(k + '=' + props[k].strip() + '\n', 'utf8'))
 			tmp.close()
@@ -102,8 +107,7 @@ class Minecraft:
 			shutil.move(tmp.name, 'server.properties')
 		finally:
 			try:
-				if os.path.isfile(tmp.name):
-					os.remove(tmp.name)
+				os.remove(tmp.name)
 			except OSError:
 				pass
 		return self.properties()
