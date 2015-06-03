@@ -1,0 +1,25 @@
+#!/bin/bash
+
+if [ -z "$1" ]; then
+	echo "Usage: mcsw-client [endpoint] [data (optional)]"
+	echo "Examples:"
+	echo "- mcsw-client start '{ \"ram\": \"1024M\" }'"
+	echo "- mcsw-client stop"
+	echo "- mcsw-client exec '{ \"command\": \"say hi\" }'"
+	exit
+fi
+
+MCSW_PASSWORD=''
+if [ -f /opt/gamocosm/mcsw-auth.txt ]; then
+	MCSW_PASSWORD=$(sed -n '2{p;q}' /opt/gamocosm/mcsw-auth.txt)
+	if [ $? -ne 0 ]; then
+		echo "Unable to get mcsw auth data"
+		exit 1
+	fi
+fi
+
+if [ -z "$2" ]; then
+	curl "http://gamocosm-mothership:$MCSW_PASSWORD@localhost:5000/$1"
+else
+	curl --data "$2" "http://gamocosm-mothership:$MCSW_PASSWORD@localhost:5000/$1"
+fi
