@@ -55,6 +55,7 @@ class Minecraft:
 			return None
 		try:
 			self.process.stdin.write('stop\n')
+			self.process.stdin.flush()
 			self.process.wait(16)
 		except subprocess.TimeoutExpired:
 			self.process.terminate()
@@ -70,6 +71,7 @@ class Minecraft:
 		if self.pid() == 0:
 			return ERR_MINECRAFT_NOT_RUNNING
 		self.process.stdin.write(command + '\n')
+		self.process.stdin.flush()
 		return None
 
 	def properties(self, props=None):
