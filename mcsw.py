@@ -22,8 +22,7 @@ import time
 from minecraft import Minecraft
 from daemon import Daemon
 
-VERSION = distutils.version.StrictVersion('0.4.0')
-SOURCE_URL = 'https://raw.githubusercontent.com/Gamocosm/minecraft-server_wrapper/master/minecraft-server_wrapper.py'
+VERSION = distutils.version.StrictVersion('0.4.1')
 
 ERR_INVALID_REQUEST = 'invalid_request'
 ERR_NO_AUTH = 'no_auth'
@@ -32,7 +31,7 @@ ERR_BADNESS = 'badness'
 
 app = flask.Flask(__name__)
 minecraft = None
-auth_file = None
+auth_credentials = None
 
 # Helpers
 
@@ -41,16 +40,37 @@ def build_response(status, http_status_code=200, **kwargs):
 	res.status_code = http_status_code
 	return res
 
-def response_check_auth(u, p):
+def auth_file_load(auth_file):
+	global auth_credentials
 	try:
 		with open(auth_file) as f:
-			content = f.readlines()
-		if len(content) < 2:
-			return False
-		return content[0].strip() == u and content[1].strip() == p
+			u = None
+			p = None
+			i = 0
+			for line in f:
+				if i == 0:
+					u = line.strip()
+					if len(u) == 0:
+						return 'blank username'
+				elif i == 1:
+					p = line.strip()
+					if len(p) == 0:
+						return 'blank password'
+				else:
+					break
+				i += 1
+			if i == 2:
+				auth_credentials = (u, p)
+				return None
+			return 'bad format'
 	except OSError:
-		app.logger.exception('Auth file ' + auth_file + ' not found')
-		return False
+		return 'unable to open'
+	return 'badness'
+
+def response_check_auth(u, p):
+	if auth_credentials is None:
+		return True
+	return u == auth_credentials[0] and p == auth_credentials[1]
 
 def response_authenticate():
 	res = build_response(ERR_NO_AUTH, 401)
@@ -61,9 +81,8 @@ def requires_auth(f):
 	@functools.wraps(f)
 	def decorated(*args, **kwargs):
 		auth = flask.request.authorization
-		if not auth_file is None:
-			if not auth or not response_check_auth(auth.username, auth.password):
-				return response_authenticate()
+		if not auth or not response_check_auth(auth.username, auth.password):
+			return response_authenticate()
 		return f(*args, **kwargs)
 	return decorated
 
@@ -104,28 +123,6 @@ Legacy
 @requires_auth
 def minecraft_pid():
 	return build_response(None, pid=minecraft.pid())
-
-'''
-request: {
-	'url': string, # (optional)
-	'min_version': string, # (optional)
-}
-response: {
-}
-'''
-@app.route('/update_wrapper', methods=['POST'])
-@requires_auth
-def update_wrapper():
-	if minecraft.pid() != 0:
-		return build_response(mc.ERR_MINECRAFT_RUNNING)
-	data = flask.request.get_json(force=True)
-	url = data.get('url', SOURCE_URL)
-	min_version = data.get('min_version')
-	if min_version is None or VERSION < distutils.version.StrictVersion(min_version):
-		download_file(url, __file__)
-	print('here')
-	app.logger.info('herestderr')
-	return build_response(None)
 
 '''
 request: path=
@@ -325,25 +322,24 @@ def shutdown():
 def run():
 	global minecraft
 	minecraft = Minecraft('minecraft.pid', app.logger)
+	atexit.register(shutdown)
 	# Note: Werkzeug server's reloader catches SIGTERM
 	signal.signal(signal.SIGINT, lambda signum, frame: sys.exit(0))
 	signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
-	atexit.register(shutdown)
 	handler = logging.StreamHandler()
 	app.logger.addHandler(handler)
 	app.run(host='0.0.0.0')
 
 def main():
-	global auth_file
 	pidfile = None
 	d = None
-	# Legacy 0.3.0
-	if len(sys.argv) == 2:
-		auth_file = sys.argv[1]
 	for i in range(1, len(sys.argv)):
 		arg = sys.argv[i]
 		if arg.startswith('--auth='):
-			auth_file = arg[len('--auth='):]
+			auth_error = auth_file_load(arg[len('--auth='):])
+			if not auth_error is None:
+				print('Bad auth file: ' + auth_error)
+				sys.exit(1)
 	if len(sys.argv) > 2:
 		if sys.argv[1] == 'daemonize':
 			pidfile = sys.argv[2]
