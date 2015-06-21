@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import tempfile
 import daemon
+import signal
 
 ERR_NO_MINECRAFT = 'no_minecraft'
 ERR_MINECRAFT_RUNNING = 'minecraft_running'
@@ -58,11 +59,14 @@ class Minecraft:
 			self.process.stdin.flush()
 			self.process.wait(16)
 		except subprocess.TimeoutExpired:
-			self.process.terminate()
+			#self.process.terminate()
+			pgid = os.getpgid(self.pid())
+			os.killpg(pgid, signal.SIGTERM)
 			try:
 				self.process.wait(4)
 			except subprocess.TimeoutExpired:
-				self.process.kill()
+				#self.process.kill()
+				os.killpg(pgid, signal.SIGKILL)
 		self.process = None
 		self.cleanup()
 		return None
