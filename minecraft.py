@@ -32,7 +32,7 @@ class Minecraft:
 			return None
 		if self.minecraft_running_elsewhere():
 			return ERR_MINECRAFT_ORPHANED
-		cmd = ['java', '-Xmx' + ram, '-Xms' + ram, '-jar', 'minecraft_server-run.jar', 'nogui']
+		cmd = ['java', '-Xmx' + ram, '-jar', 'minecraft_server-run.jar', 'nogui']
 		if os.path.isfile('minecraft_server-run.sh'):
 			cmd = ['bash', 'minecraft_server-run.sh']
 		elif not os.path.isfile('minecraft_server-run.jar'):
