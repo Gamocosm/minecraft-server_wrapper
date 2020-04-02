@@ -144,9 +144,9 @@ def get_file():
 	if os.path.isdir(path):
 		tmp = tempfile.mkdtemp()
 		try:
-			zip_path = os.path.join(tmp, 'a.zip')
+			zip_path = os.path.join(tmp, 'a')
 			zip_directory(path, zip_path)
-			return flask.send_file(zip_path, mimetype='application/zip', as_attachment=True, attachment_filename='gamocosm-' + time.strftime('%Y_%b_%d').lower() + '-' + os.path.basename(path) + '.zip')
+			return flask.send_file(zip_path + '.zip', mimetype='application/zip', as_attachment=True, attachment_filename='gamocosm-' + time.strftime('%Y_%b_%d').lower() + '-' + os.path.basename(path) + '.zip')
 		finally:
 			shutil.rmtree(tmp)
 	return build_response(ERR_OTHER, 404)
@@ -164,9 +164,9 @@ def minecraft_download_world():
 		return build_response(ERR_OTHER, 404)
 	tmp = tempfile.mkdtemp()
 	try:
-		zip_path = os.path.join(tmp, 'a.zip')
+		zip_path = os.path.join(tmp, 'a')
 		zip_directory(world_name, zip_path)
-		return flask.send_file(zip_path, mimetype='application/zip', as_attachment=True, attachment_filename='minecraft-world-' + time.strftime('%Y_%b_%d').lower() + '.zip')
+		return flask.send_file(zip_path + '.zip', mimetype='application/zip', as_attachment=True, attachment_filename='minecraft-world-' + time.strftime('%Y_%b_%d').lower() + '.zip')
 	finally:
 		shutil.rmtree(tmp)
 	return build_response(ERR_OTHER, 400)
@@ -181,7 +181,7 @@ def minecraft_backup():
 		os.remove('backups')
 	if not os.path.exists('backups'):
 		os.makedirs('backups')
-	zip_name = 'backups/minecraft-world_backup-' + str(datetime.datetime.today()).replace('-', '_').replace(' ', '-').replace(':', '_').replace('.', '-') + '.zip'
+	zip_name = 'backups/minecraft-world_backup-' + str(datetime.datetime.today()).replace('-', '_').replace(' ', '-').replace(':', '_').replace('.', '-')
 	world_name = minecraft.properties().get('level-name')
 	if world_name is None:
 		return build_response(ERR_OTHER, 400)
@@ -295,7 +295,7 @@ def minecraft_server_properties():
 # Utility
 
 def zip_directory(path, zip_name):
-	shutil.make_archive(zip_name, 'zip', path)
+	shutil.make_archive(zip_name, 'zip', '.', path)
 	'''
 	z = zipfile.ZipFile(zip_name, 'w')
 	for root, dirs, files in os.walk(path):
