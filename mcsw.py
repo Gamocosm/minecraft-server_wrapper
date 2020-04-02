@@ -145,7 +145,7 @@ def get_file():
 		tmp = tempfile.mkdtemp()
 		try:
 			zip_path = os.path.join(tmp, 'a.zip')
-			z = zip_directory(path, zip_path)
+			zip_directory(path, zip_path)
 			return flask.send_file(zip_path, mimetype='application/zip', as_attachment=True, attachment_filename='gamocosm-' + time.strftime('%Y_%b_%d').lower() + '-' + os.path.basename(path) + '.zip')
 		finally:
 			shutil.rmtree(tmp)
@@ -165,7 +165,7 @@ def minecraft_download_world():
 	tmp = tempfile.mkdtemp()
 	try:
 		zip_path = os.path.join(tmp, 'a.zip')
-		z = zip_directory(world_name, zip_path)
+		zip_directory(world_name, zip_path)
 		return flask.send_file(zip_path, mimetype='application/zip', as_attachment=True, attachment_filename='minecraft-world-' + time.strftime('%Y_%b_%d').lower() + '.zip')
 	finally:
 		shutil.rmtree(tmp)
@@ -295,12 +295,15 @@ def minecraft_server_properties():
 # Utility
 
 def zip_directory(path, zip_name):
+	shutil.make_archive(zip_name, 'zip', path)
+	'''
 	z = zipfile.ZipFile(zip_name, 'w')
 	for root, dirs, files in os.walk(path):
 		for f in files:
 			f_path = os.path.join(root, f)
 			z.write(f_path, os.path.relpath(f_path, path))
 	return z
+	'''
 
 def download_file(url, path):
 	path = os.path.realpath(path)
