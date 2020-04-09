@@ -3,16 +3,17 @@ Description=Minecraft Server Wrapper
 After=syslog.target network.target
 
 [Service]
-Type=forking
-PIDFile=/run/mcuser/mcsw.pid
+Type=notify
 User=mcuser
+Group=mcuser
+RestartSec=1
+Restart=always
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=mcsw
 WorkingDirectory=/home/mcuser/minecraft
-Environment=
-PermissionsStartOnly=true
-ExecStartPre=/usr/bin/mkdir -p /var/run/mcuser
-ExecStartPre=/usr/bin/chown mcuser:mcuser /var/run/mcuser
-ExecStart=/usr/bin/python3 /opt/gamocosm/mcsw.py daemonize /var/run/mcuser/mcsw.pid --auth=/opt/gamocosm/mcsw-auth.txt
-ExecStop=/usr/bin/python3 /opt/gamocosm/mcsw.py stop /var/run/mcuser/mcsw.pid
+Environment=FLASK_APP=mcsw MCSW_AUTH=/opt/gamocosm/mcsw-auth.txt
+ExecStart=/usr/local/bin/run_mcsw.sh
 
 [Install]
 WantedBy=multi-user.target

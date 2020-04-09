@@ -30,6 +30,9 @@ class Minecraft:
 	def start(self, ram):
 		if self.pid() != 0:
 			return None
+		assert(self.process is None)
+		assert(self.stdout is None)
+		assert(self.stderr is None)
 		if self.minecraft_running_elsewhere():
 			return ERR_MINECRAFT_ORPHANED
 		cmd = ['java', '-Xmx' + ram, '-jar', 'minecraft_server-run.jar', 'nogui']
@@ -37,36 +40,42 @@ class Minecraft:
 			cmd = ['bash', 'minecraft_server-run.sh']
 		elif not os.path.isfile('minecraft_server-run.jar'):
 			return ERR_NO_MINECRAFT
-		self.cleanup()
 		try:
-			self.stdout = open('minecraft-stdout.log', 'a')
-			self.stderr = open('minecraft-stderr.log', 'a')
+			self.stdout = open('minecraft-stdout.log', 'ab')
+			self.stderr = open('minecraft-stderr.log', 'ab')
 		except OSError:
-			logger.exception('Error opening Minecraft stdout and stderr files')
+			self.logger.exception('[mcsw] Error opening Minecraft stdout and stderr files.')
 			return ERR_OTHER
 		def create_process(f):
-			self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=self.stdout, stderr=self.stderr, universal_newlines=True, preexec_fn=lambda: os.setpgrp(), shell=False)
+			self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=self.stdout, stderr=self.stderr)
 			daemon.write_pid(f, self.process.pid)
 		if not daemon.open_pid(self.pidfile, create_process):
 			return ERR_PIDFILE_LOCKED
 		return None
 
 	def stop(self):#
-		if self.pid() == 0:
+		self.logger.info('[mcsw] Stopping minecraft...')
+		mc_pid = self.pid()
+		if mc_pid == 0:
+			self.logger.info('[mcsw] Not running.')
 			return None
 		try:
-			self.process.stdin.write('stop\n')
+			self.process.stdin.write('stop\n'.encode('ascii'))
 			self.process.stdin.flush()
 			self.process.wait(16)
+			self.logger.info('[mcsw] Minecraft exited gracefully.')
 		except subprocess.TimeoutExpired:
-			#self.process.terminate()
-			pgid = os.getpgid(self.pid())
-			os.killpg(pgid, signal.SIGTERM)
+			self.process.terminate()
+			#pgid = os.getpgid(mc_pid)
+			#os.killpg(pgid, signal.SIGTERM)
 			try:
 				self.process.wait(4)
+				self.logger.info('[mcsw] Minecraft exited due to SIGTERM.')
 			except subprocess.TimeoutExpired:
-				#self.process.kill()
-				os.killpg(pgid, signal.SIGKILL)
+				self.process.kill()
+				#os.killpg(pgid, signal.SIGKILL)
+				self.process.wait()
+				self.logger.info('[mcsw] Minecraft killed.')
 		self.process = None
 		self.cleanup()
 		return None
@@ -74,7 +83,7 @@ class Minecraft:
 	def exec(self, command):
 		if self.pid() == 0:
 			return ERR_MINECRAFT_NOT_RUNNING
-		self.process.stdin.write(command + '\n')
+		self.process.stdin.write((command + '\n').encode('utf8'))
 		self.process.stdin.flush()
 		return None
 
@@ -119,18 +128,17 @@ class Minecraft:
 		return self.properties()
 
 	def minecraft_running_elsewhere(self):
-		return daemon.read_pid(self.pidfile)
+		return (daemon.read_pid(self.pidfile) is not None)
 
 	def cleanup(self):
-		if self.pid() == 0:
-			daemon.delete_pid(self.pidfile)
+		daemon.delete_pid(self.pidfile)
 		try:
-			if not self.stdout is None:
-				self.stdout.close()
+			self.stdout.close()
 		except OSError:
-			app.logger.exception('Error closing Minecraft stdout file')
+			self.logger.exception('[mcsw] Error closing Minecraft stdout file.')
 		try:
-			if not self.stderr is None:
-				self.stderr.close()
+			self.stderr.close()
 		except OSError:
-			app.logger.exception('Error closing Minecraft stderr file')
+			self.logger.exception('[mcsw] Error closing Minecraft stderr file.')
+		self.stdout = None
+		self.stderr = None

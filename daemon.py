@@ -21,11 +21,12 @@ import sys
 import time
 import atexit
 import signal
+import systemd.daemon
 
 def read_pid(pidfile):
 	pid = None
 	try:
-		with open(pidfile, encoding='utf8') as f:
+		with open(pidfile, encoding='ascii') as f:
 			try:
 				pid = int(f.readline().strip())
 				try:
@@ -41,7 +42,7 @@ def read_pid(pidfile):
 
 def open_pid(pidfile, success):
 	try:
-		with open(pidfile, 'x', encoding='utf8') as f:
+		with open(pidfile, 'x', encoding='ascii') as f:
 			success(f)
 	except FileExistsError:
 		return False
@@ -58,6 +59,10 @@ def delete_pid(pidfile):
 		os.remove(pidfile)
 	except FileNotFoundError:
 		pass
+
+def systemd_ready():
+	if systemd.daemon.booted():
+		systemd.daemon.notify('READY=1')
 
 # From python subprocess source
 def close_fds():
