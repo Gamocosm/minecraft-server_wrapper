@@ -12,7 +12,7 @@ StandardOutput=syslog
 StandardError=syslog
 SyslogIdentifier=mcsw
 WorkingDirectory=/home/mcuser/minecraft
-Environment=FLASK_APP=mcsw MCSW_AUTH=/opt/gamocosm/mcsw-auth.txt
+Environment=FLASK_APP=/opt/gamocosm/mcsw MCSW_AUTH=/opt/gamocosm/mcsw-auth.txt
 ExecStart=/usr/local/bin/run_mcsw.sh
 
 [Install]
