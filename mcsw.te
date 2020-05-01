@@ -1,0 +1,10 @@
+
+module mcsw 1.0;
+
+require {
+	type init_t;
+	type user_home_t;
+	class lnk_file read;
+}
+
+allow init_t user_home_t:lnk_file read;
